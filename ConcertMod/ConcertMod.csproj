@@ -5,8 +5,8 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>CS-Concert-Mod</AssemblyName>
     <RootNamespace>ConcertMod</RootNamespace>
-    <Version>0.2.2</Version>
-    <Product>콘서트 확장판</Product>
+    <Version>0.2.3</Version>
+    <Product>콘서트 Extended</Product>
     <Authors>chbk1348</Authors>
     <Nullable>disable</Nullable>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>

@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace ConcertMod.Core
 {
-    /// <summary>output_log.txt에 남김(CSCommon CSCommonLog, 머리 "[콘서트 확장판]: ").</summary>
+    /// <summary>output_log.txt에 남김(CSCommon CSCommonLog, 머리 "[콘서트 Extended]: ").</summary>
     internal static class Log
     {
         public static void Info(string message) => CSCommonLog.Info(message);
