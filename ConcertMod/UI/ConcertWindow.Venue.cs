@@ -1,0 +1,205 @@
+﻿using System;
+using System.Collections.Generic;
+using ColossalFramework;
+using ConcertMod.Data;
+using UnityEngine;
+using C = CSCommonUX.Concert;
+using D = CSCommonUX.CSCommonDesign;
+using S = CSCommonUX.Section;
+
+namespace ConcertMod.UI
+{
+    /// <summary>
+    /// 예약 탭 · 공연장(캔버스 Main · venue): 위 숫자 칸(빌린 경기장 · 잡힌 경기장 공연 · 지난 경기장 공연) ·
+    /// 경기장 카드(경기장 모양 포도알 좌석 · 다음 경기 · 빌리기 스위치 · 30일 띠 · 잡힌 공연). 경기 일정은 그대로, 다음 경기 준비 전 빈 틈에만 공연을 넣음.
+    /// </summary>
+    internal sealed partial class ConcertWindow
+    {
+        /// <summary>카드 좌석 점 최대 수 · 30일 띠 날 수.</summary>
+        const int VenueDots = 300, StripDays = 30;
+
+        // 경기장 모양: 축구(Match Day) = 양옆 스탠드 + 가운데, 대학 경기장 = 가운데만
+        readonly Zone[] bowlL = { Z("A 스탠드", 0.15f, 10, 1, 0f, 0f) }, bowlR = { Z("B 스탠드", 0.15f, 10, 1, 0f, 0f) };
+        readonly Zone[] bowlC = { Z("그라운드 스탠딩", 0.25f, 20, 0, 0f, 0f), Z("관중석 1층", 0.25f, 20, 2, 0f, 0f), Z("관중석 2층", 0.2f, 20, 3, 0f, 0f) };
+        readonly Zone[] arenaC = { Z("코트 스탠딩", 0.3f, 24, 0, 0f, 0f), Z("1층", 0.4f, 24, 1, 0f, 0f), Z("2층", 0.3f, 24, 2, 0f, 0f) };
+
+        readonly EventManager.FutureEvent[] future = new EventManager.FutureEvent[8];
+
+        static void SizeZones(Zone[] zones, int n)
+        {
+            foreach (var z in zones) z.Count = Math.Max(z.Cols, Mathf.RoundToInt(n * z.Share));
+        }
+
+        float ZonesH(Zone[] zones, float step, float label, float gap)
+        {
+            float h = 0f;
+            foreach (var z in zones) h += Mathf.Ceil(z.Count / (float)z.Cols) * step + label + gap;
+            return h - gap;
+        }
+
+        static bool IsVarsity(ushort b) => Singleton<BuildingManager>.instance.m_buildings.m_buffer[b].Info?.m_buildingAI is VarsitySportsArenaAI;
+
+        float VenueTab(float w)
+        {
+            var venues = Rental.Venues;
+            int rented = 0, booked = 0;
+            foreach (var v in venues)
+            {
+                if (Rental.IsRented(v)) rented++;
+                if (Rental.ActiveAt(v) != null) booked++;
+            }
+            float gap = S.Gap, cw = (w - gap * 2f) / 3f;
+            Cell(new Rect(0f, 0f, cw, CellH), "빌린 경기장", $"{rented}곳 · {venues.Count}곳 중");
+            Cell(new Rect(cw + gap, 0f, cw, CellH), "잡힌 경기장 공연", booked + "회");
+            Cell(new Rect((cw + gap) * 2f, 0f, cw, CellH), "지난 경기장 공연", Rental.LogSnapshot().Length + "회");
+            float y = CellH + gap;
+            if (venues.Count == 0) return y + Note(y, w, "공연장", "Match Day 경기장이나 대학 경기장을 지으면 공연장으로 빌릴 수 있어요");
+            float hw = (w - gap) * 0.5f;
+            for (int i = 0; i < venues.Count; i += 2)
+            {
+                float h = Mathf.Max(VenueCardH(venues[i]), i + 1 < venues.Count ? VenueCardH(venues[i + 1]) : 0f);
+                VenueCard(new Rect(0f, y, hw, h), venues[i]);
+                if (i + 1 < venues.Count) VenueCard(new Rect(hw + gap, y, hw, h), venues[i + 1]);
+                y += h + gap;
+            }
+            Legend(y, w);
+            return y + D.LineSub;
+        }
+
+        void Legend(float y, float w)
+        {
+            string[] names = { "경기 날", "공연 잡힘", "빈 날" };
+            Color[] cols = { Pal.Light, Pal.ConcertSeatVip, Pal.Inset };
+            float x = 0f;
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (Draw.Repaint) Draw.Round(new Rect(x, y + D.LineSub * 0.5f - D.Gap, D.Gap * 2f, D.Gap * 2f), cols[i], D.Gap * 0.5f);
+                float tw = Mathf.Ceil(Draw.TextWidth(names[i], D.FontMin, false));
+                Draw.TextFit(new Rect(x + D.Gap * 3f, y, tw + D.Gap, D.LineSub), names[i], D.FontMin, S.SubInk);
+                x += D.Gap * 3f + tw + S.Pad * 1.5f;
+            }
+            Draw.TextFit(new Rect(x, y, w - x, D.LineSub), "경기 일정은 그대로 · 공연이 끝나면 바로 정리 · 경기장에 무대 장식은 없어요", D.FontMin, S.SubInk, false, TextAnchor.MiddleRight);
+        }
+
+        int VenueSeats(ushort b, out int per)
+        {
+            int cap = Math.Max(1, Tickets.SessionCap(b));
+            per = Math.Max(1, Mathf.CeilToInt(cap / (float)VenueDots));
+            int n = Math.Max(1, Mathf.RoundToInt(cap / (float)per));
+            if (IsVarsity(b)) SizeZones(arenaC, n);
+            else
+            {
+                SizeZones(bowlC, n);
+                SizeZones(bowlL, n);
+                SizeZones(bowlR, n);
+            }
+            return cap;
+        }
+
+        float VenueMapH(ushort b)
+        {
+            VenueSeats(b, out _);
+            float step = C.SeatDot + C.SeatGap, label = D.LineSub + D.Gap, zg = S.Pad;
+            float zones = IsVarsity(b) ? ZonesH(arenaC, step, label, zg) : Mathf.Max(ZonesH(bowlC, step, label, zg), ZonesH(bowlL, step, label, zg));
+            return S.Pad + D.LineBody * 1.5f + S.Pad + zones + S.Pad + D.LineSub + S.Pad;
+        }
+
+        float VenueCardH(ushort b) => PlateTop + VenueMapH(b) + S.Gap + S.RowH + D.Gap * 3f + C.BarH * 2f + D.LineSub + D.Gap * 3f + S.RowH + S.PadBottom;
+
+        void VenueCard(Rect r, ushort b)
+        {
+            var bm = Singleton<BuildingManager>.instance;
+            var em = Singleton<EventManager>.instance;
+            var sim = SimulationManager.instance;
+            bool varsity = IsVarsity(b);
+            var body = Plate(r, bm.GetBuildingName(b, InstanceID.Empty) ?? "경기장", "M3 20h18M5 20V9l7-5 7 5v11M9 20v-6h6v6", varsity ? "대학 경기장" : "축구 경기장 · Match Day");
+            // 경기장 모양 포도알 좌석
+            int cap = VenueSeats(b, out int per);
+            var map = new Rect(body.x, body.y, body.width, VenueMapH(b));
+            if (Draw.Repaint) Draw.Round(map, Pal.ConcertScene, S.Radius - S.Pad * 0.5f);
+            var stage = new Rect(map.center.x - S.CodeW * 3f, map.y + S.Pad, S.CodeW * 6f, D.LineBody * 1.5f);
+            if (Draw.Repaint) Draw.Round(stage, Pal.ConcertTruss, Board.BoxRadius);
+            Draw.TextFit(stage, "무대", D.FontMin, Pal.Light, true, TextAnchor.MiddleCenter);
+            float step = C.SeatDot + C.SeatGap, label = D.LineSub + D.Gap, top = stage.yMax + S.Pad;
+            if (varsity)
+            {
+                float wc = arenaC[0].Cols * step;
+                DrawZones(arenaC, map.center.x - wc * 0.5f, top, wc, step, label, S.Pad, 0, per);
+            }
+            else
+            {
+                float wc = bowlC[0].Cols * step, ws = bowlL[0].Cols * step, gx = S.Pad * 1.5f, xc = map.center.x - wc * 0.5f;
+                DrawZones(bowlC, xc, top, wc, step, label, S.Pad, 0, per);
+                DrawZones(bowlL, xc - gx - ws, top, ws, step, label, S.Pad, 0, per);
+                DrawZones(bowlR, xc + wc + gx, top, ws, step, label, S.Pad, 0, per);
+            }
+            Draw.TextFit(new Rect(map.x, map.yMax - S.Pad - D.LineSub, map.width, D.LineSub), $"공연 정원 {cap:#,0}명 · 점 하나 = {per}명", D.FontMin, S.SubInk, false, TextAnchor.MiddleCenter);
+
+            // 다음 경기 · 빌리기
+            float y = map.yMax + S.Gap;
+            DateTime? nextMatch = null;
+            var days = new List<KeyValuePair<DateTime, bool>>();
+            ushort head = bm.m_buildings.m_buffer[b].m_eventIndex;
+            if (head != 0 && (em.m_events.m_buffer[head].m_flags & (EventData.Flags.Completed | EventData.Flags.Cancelled | EventData.Flags.Deleted)) == 0)
+            {
+                bool show = em.m_events.m_buffer[head].Info?.m_eventAI is ConcertAI;
+                var t = em.m_events.m_buffer[head].StartTime;
+                days.Add(new KeyValuePair<DateTime, bool>(t, show));
+                if (!show) nextMatch = t;
+            }
+            int n = em.GetFutureEvents(b, future, future.Length);
+            for (int i = 0; i < n; i++)
+            {
+                bool show = future[i].m_info?.m_eventAI is ConcertAI;
+                days.Add(new KeyValuePair<DateTime, bool>(future[i].m_startTime, show));
+                if (!show && nextMatch == null) nextMatch = future[i].m_startTime;
+            }
+            Draw.TextFit(new Rect(body.x, y, body.width, S.RowH), nextMatch != null ? "다음 경기 " + When(nextMatch.Value) : "잡힌 경기가 없어요", D.FontBody, Pal.Txt, true);
+            bool on = Rental.IsRented(b);
+            var sw = new Rect(body.xMax - D.SwitchW, y + (S.RowH - D.SwitchH) * 0.5f, D.SwitchW, D.SwitchH);
+            float lw = Mathf.Ceil(Draw.TextWidth("빌리기", D.FontDesc, false));
+            Draw.TextFit(new Rect(sw.x - D.Gap * 2f - lw, y, lw, S.RowH), "빌리기", D.FontDesc, S.SubInk);
+            if (Switch.In(sw, on)) Rental.SetRented(b, !on);
+            y += S.RowH + D.Gap * 3f;
+
+            // 30일 띠: 경기 날 · 공연 날 · 빈 날
+            var today = sim.m_currentGameTime.Date;
+            float cg = 2f, cwid = (body.width - cg * (StripDays - 1)) / StripDays;
+            var rent = Rental.ActiveAt(b);
+            Color showCol = rent != null ? Shows.BandOf(rent.Band)?.Color ?? Pal.ConcertSeatVip : Pal.ConcertSeatVip;
+            for (int d = 0; d < StripDays; d++)
+            {
+                var day = today.AddDays(d);
+                Color c = Pal.Inset;
+                foreach (var kv in days) if (kv.Key.Date == day) c = kv.Value ? showCol : Pal.Light;
+                if (rent != null && sim.FrameToTime(rent.Start).Date == day) c = showCol;
+                if (Draw.Repaint) Draw.Round(new Rect(body.x + (cwid + cg) * d, y, cwid, C.BarH * 2f), c, 2f);
+            }
+            y += C.BarH * 2f + D.Gap;
+            Draw.TextFit(new Rect(body.x, y, body.width, D.LineSub), Day(today), D.FontMin, S.SubInk);
+            Draw.TextFit(new Rect(body.x, y, body.width, D.LineSub), Day(today.AddDays(StripDays - 1)), D.FontMin, S.SubInk, false, TextAnchor.MiddleRight);
+            y += D.LineSub + D.Gap * 3f;
+
+            // 잡힌 공연 · 안내
+            string text;
+            Color ink = S.SubInk;
+            if (rent != null)
+            {
+                text = $"{Artists.Of(rent.Band)} · {When(sim.FrameToTime(rent.Start))} 공연" + (rent.State == 0 ? " · 자리 잡는 중" : " 잡힘");
+                ink = Pal.Txt;
+            }
+            else if (on) text = "다음 경기 전 틈이 생기면 인기 1위 밴드로 공연을 잡아요";
+            else
+            {
+                text = "빌리기를 켜면 다음 경기 전 빈 틈에 공연을 잡아요";
+                foreach (var l in Rental.LogSnapshot())
+                    if (l.Stadium == b) { text = $"지난 공연 · {Artists.Of(l.Band)} · {Day(sim.FrameToTime(l.Start))}"; break; }
+            }
+            var line = new Rect(body.x, y, body.width, S.RowH);
+            if (Draw.Repaint) Draw.Round(line, Pal.Inset, Board.BoxRadius * 2f);
+            if (rent != null && Draw.Repaint) Draw.Dot(new Vector2(line.x + S.Pad + D.Gap, line.center.y), D.Gap, showCol);
+            float tx = line.x + S.Pad + (rent != null ? D.Gap * 4f : 0f);
+            Draw.TextFit(new Rect(tx, line.y, line.xMax - S.Pad - tx, line.height), text, D.FontDesc, ink, rent != null);
+        }
+    }
+}

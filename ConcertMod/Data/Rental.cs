@@ -1,0 +1,342 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using ColossalFramework;
+using HarmonyLib;
+using ICities;
+using UnityEngine;
+
+namespace ConcertMod.Data
+{
+    /// <summary>경기장 공연 한 번: 경기장 · 밴드 · 시작 · 정리 끝 프레임 · 만든 이벤트 · 앞 경기(일정 기준) · 상태(0 넣는 중 · 1 만들어짐).</summary>
+    internal sealed class Rent
+    {
+        public ushort Stadium, Event, AnchorPrev;
+        public string Band;
+        public uint Start, End, AnchorExpire;
+        public byte State;
+    }
+
+    /// <summary>지난 경기장 공연(화면 기록): 경기장 · 밴드 · 시작 프레임.</summary>
+    internal struct RentLog
+    {
+        public ushort Stadium;
+        public string Band;
+        public uint Start;
+    }
+
+    /// <summary>
+    /// 공연장 대관(캔버스 예약 · 공연장): 빌리기를 켠 경기장(Match Day · 대학 경기장)에서 다음 경기가 아직 준비 전이고
+    /// 그 준비 전까지 공연 하나(준비 · 공연 · 정리)가 들어갈 틈이 있으면, 준비 전 다음 경기를 지우고 그 자리에 공연을 넣음.
+    /// 공연이 끝나 게임이 다음 경기를 만들 때 앞 경기를 일정 기준으로 다시 고르고(같은 경기 · 같은 시각) 공연 이벤트는 경기장 기록에서 뺌
+    /// → 경기 일정 · 전적 · 상금 · 지난 경기 목록은 빌리기 전과 같음. 값은 시뮬레이션 스레드에서만 바꿈(화면은 lock 안에서 읽음).
+    /// </summary>
+    internal static class Rental
+    {
+        public const string SaveKey = "ConcertMod.Rental";
+        const int Format = 1, KeepLog = 12;
+
+        /// <summary>공연이 끝나고 다음 경기 준비까지 남길 여유(게임 시간).</summary>
+        const float MarginHours = 2f;
+
+        public static readonly List<ushort> Rented = new();
+        public static readonly List<Rent> Active = new();
+        public static readonly List<RentLog> Log = new();
+        static readonly object gate = new();
+
+        /// <summary>경기장(경기 이벤트를 받는 건물) — 본 스레드에서 1초마다 다시 찾음.</summary>
+        public static readonly List<ushort> Venues = new();
+
+        public static bool IsStadium(BuildingInfo info) =>
+            info != null && info.m_buildingAI is PlayerBuildingAI ai && (ai.m_supportEvents & (EventManager.EventType.Football | EventManager.EventType.VarsitySportsMatch)) != 0;
+
+        static uint Frames(float hours) => (uint)Mathf.RoundToInt(hours * SimulationManager.DAYTIME_HOUR_TO_FRAME);
+
+        /// <summary>본 스레드 1초마다: 경기장 목록 · 시뮬레이션 스레드에 대관 단계.</summary>
+        /// <summary>페스티벌 다음 공연 밴드(본 스레드가 적고 시뮬레이션 스레드가 읽음).</summary>
+        static volatile string festivalNext;
+
+        public static void Tick()
+        {
+            festivalNext = Shows.Next.Count > 0 ? Shows.Next[0].Band.Key : null;
+            Venues.Clear();
+            var buf = Singleton<BuildingManager>.instance.m_buildings.m_buffer;
+            for (int i = 1; i < buf.Length; i++)
+                if ((buf[i].m_flags & (Building.Flags.Created | Building.Flags.Deleted)) == Building.Flags.Created && buf[i].m_parentBuilding == 0 && IsStadium(buf[i].Info))
+                    Venues.Add((ushort)i);
+            if (Rented.Count > 0) SimulationManager.instance.AddAction(Step);
+        }
+
+        public static bool IsRented(ushort b) { lock (gate) return Rented.Contains(b); }
+
+        /// <summary>화면용 지난 경기장 공연 사본(시뮬레이션 스레드가 바꾸는 중에도 안전).</summary>
+        public static RentLog[] LogSnapshot() { lock (gate) return Log.ToArray(); }
+
+        public static Rent ActiveAt(ushort b)
+        {
+            lock (gate) foreach (var r in Active) if (r.Stadium == b) return r;
+            return null;
+        }
+
+        /// <summary>빌리기 켜고 끄기(화면 → 시뮬레이션 스레드). 끄면 아직 만들지 않은 공연만 거둠(이미 만든 공연은 그대로 열림).</summary>
+        public static void SetRented(ushort b, bool on) => SimulationManager.instance.AddAction(() =>
+        {
+            lock (gate)
+            {
+                Rented.Remove(b);
+                if (on) Rented.Add(b);
+                else Active.RemoveAll(r => r.Stadium == b && r.State == 0);
+            }
+        });
+
+        /// <summary>대관에 쓸 밴드: 인기 1위(페스티벌 다음 공연 밴드 · 다른 경기장 공연 밴드는 뺌).</summary>
+        static Band PickBand()
+        {
+            string busy = festivalNext;
+            Band best = null;
+            foreach (var b in Shows.Bands)
+            {
+                if (b.Key == busy) continue;
+                bool used = false;
+                foreach (var r in Active) if (r.Band == b.Key) used = true;
+                if (used) continue;
+                if (best == null || ConcertAI.GetPopularity(b.Info) > ConcertAI.GetPopularity(best.Info)) best = b;
+            }
+            return best;
+        }
+
+        /// <summary>시뮬레이션 스레드: 빌린 경기장마다 틈이 있으면 공연을 넣음 · 끝내 못 만든 넣기는 거둠.</summary>
+        static void Step()
+        {
+            var em = Singleton<EventManager>.instance;
+            var bm = Singleton<BuildingManager>.instance;
+            uint now = Singleton<SimulationManager>.instance.m_currentFrameIndex;
+            lock (gate)
+            {
+                Rented.RemoveAll(b => !IsStadium(bm.m_buildings.m_buffer[b].Info));
+                // 끝내 못 만든 넣기 · 다른 길로 사라진 공연(건물 철거 등)은 거둠
+                Active.RemoveAll(r => r.State == 0 ? now > r.Start : em.m_events.m_buffer[r.Event].Info?.name != r.Band || (em.m_events.m_buffer[r.Event].m_flags & EventData.Flags.Deleted) != 0);
+                foreach (ushort s in Rented)
+                {
+                    if (ActiveAtLocked(s) != null) continue;
+                    ushort head = bm.m_buildings.m_buffer[s].m_eventIndex;
+                    if (head == 0) continue;
+                    ref var match = ref em.m_events.m_buffer[head];
+                    if (match.m_flags != EventData.Flags.Created) continue;
+                    if (match.Info?.m_eventAI is not SportMatchAI mai) continue;
+                    var band = PickBand();
+                    if (band?.Info?.m_eventAI is not ConcertAI cai) continue;
+                    uint start = Booking.AtHour(now + Frames(cai.m_prepareDuration), Mathf.RoundToInt(cai.m_startTime));
+                    uint end = start + Frames(cai.m_eventDuration + cai.m_disorganizeDuration);
+                    if (end + Frames(MarginHours) > match.m_startFrame - Frames(mai.m_prepareDuration)) continue;
+                    ushort prev = match.m_nextBuildingEvent;
+                    var r = new Rent { Stadium = s, Band = band.Key, Start = start, End = end, AnchorPrev = prev, AnchorExpire = prev != 0 ? em.m_events.m_buffer[prev].m_expireFrame : 0u };
+                    Active.Add(r);
+                    em.ReleaseEvent(head);
+                    Core.Log.Detail($"경기장 대관: {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(band.Key)} · {Singleton<SimulationManager>.instance.FrameToTime(start):MM-dd HH:mm} (다음 경기 {Singleton<SimulationManager>.instance.FrameToTime(match.m_startFrame):MM-dd HH:mm})");
+                }
+            }
+        }
+
+        static Rent ActiveAtLocked(ushort b)
+        {
+            foreach (var r in Active) if (r.Stadium == b) return r;
+            return null;
+        }
+
+        /// <summary>FindNextEventInfo 뒤(경기장): 넣는 중이면 공연 밴드 · 시작, 공연 뒤면 앞 경기 기준으로 원래 다음 경기.</summary>
+        public static void OnFindNext(PlayerBuildingAI ai, ushort building, EventInfo prev, uint prevExpire, ref EventInfo next, ref uint nextStart, ref bool result)
+        {
+            Rent r;
+            lock (gate) r = ActiveAtLocked(building);
+            if (r == null) return;
+            if (r.State == 0 && prevExpire == r.AnchorExpire)
+            {
+                var band = Shows.BandOf(r.Band)?.Info;
+                if (band == null) return;
+                next = band;
+                nextStart = r.Start;
+                result = true;
+            }
+            else if (r.State == 1 && prev?.m_eventAI is ConcertAI && prevExpire == r.End)
+            {
+                // 같은 메서드를 앞 경기로 다시 부름(이번엔 위 두 갈래에 걸리지 않음) → 빌리기 전과 같은 다음 경기
+                var em = Singleton<EventManager>.instance;
+                var anchor = r.AnchorPrev != 0 ? em.m_events.m_buffer[r.AnchorPrev].Info : null;
+                result = ai.FindNextEventInfo(building, anchor, r.AnchorExpire, out next, out nextStart);
+            }
+        }
+
+        /// <summary>ConcertAI.CreateEvent 뒤: 넣는 중인 경기장 공연이면 시작 · 끝 프레임을 맞춤.</summary>
+        public static void OnConcertCreate(ushort eventId, ref EventData data)
+        {
+            lock (gate)
+            {
+                var r = ActiveAtLocked(data.m_building);
+                if (r == null || r.State != 0 || data.Info == null || data.Info.name != r.Band) return;
+                data.m_startFrame = r.Start;
+                data.m_expireFrame = r.End;
+                r.Event = eventId;
+                r.State = 1;
+            }
+        }
+
+        /// <summary>
+        /// EventAI.CreateEvent 앞(모든 이벤트): 경기장 공연 다음에 만드는 경기면 앞 이벤트를 공연 앞 경기로 바꾸고 공연을 경기장 기록에서 뺌
+        /// (게임이 시작 시각 · 전적 · 상금 누계를 앞 경기에서 이어받게).
+        /// </summary>
+        public static void OnEventCreate(EventAI ai, ref EventData data)
+        {
+            if (data.m_nextBuildingEvent == 0 || ai is ConcertAI) return;
+            lock (gate)
+            {
+                var r = ActiveAtLocked(data.m_building);
+                if (r == null || r.State != 1 || r.Event != data.m_nextBuildingEvent) return;
+                var em = Singleton<EventManager>.instance;
+                ushort concert = r.Event;
+                data.m_nextBuildingEvent = em.m_events.m_buffer[concert].m_nextBuildingEvent;
+                em.ReleaseEvent(concert);
+                Active.Remove(r);
+                Log.Insert(0, new RentLog { Stadium = r.Stadium, Band = r.Band, Start = r.Start });
+                if (Log.Count > KeepLog) Log.RemoveAt(Log.Count - 1);
+            }
+        }
+
+        public static void Clear()
+        {
+            lock (gate)
+            {
+                Rented.Clear();
+                Active.Clear();
+                Log.Clear();
+            }
+            Venues.Clear();
+        }
+
+        public static byte[] Write()
+        {
+            using var ms = new MemoryStream();
+            using var w = new BinaryWriter(ms);
+            lock (gate)
+            {
+                w.Write(Format);
+                w.Write(Rented.Count);
+                foreach (var b in Rented) w.Write(b);
+                w.Write(Active.Count);
+                foreach (var r in Active)
+                {
+                    w.Write(r.Stadium);
+                    w.Write(r.Band ?? "");
+                    w.Write(r.Start);
+                    w.Write(r.End);
+                    w.Write(r.Event);
+                    w.Write(r.AnchorPrev);
+                    w.Write(r.AnchorExpire);
+                    w.Write(r.State);
+                }
+                w.Write(Log.Count);
+                foreach (var l in Log)
+                {
+                    w.Write(l.Stadium);
+                    w.Write(l.Band ?? "");
+                    w.Write(l.Start);
+                }
+            }
+            w.Flush();
+            return ms.ToArray();
+        }
+
+        public static void Read(byte[] data)
+        {
+            Clear();
+            using var r = new BinaryReader(new MemoryStream(data));
+            int format = r.ReadInt32();
+            if (format > Format) throw new InvalidDataException($"대관 형식 {format} 은 이 판보다 새것");
+            lock (gate)
+            {
+                int n = r.ReadInt32();
+                for (int i = 0; i < n; i++) Rented.Add(r.ReadUInt16());
+                n = r.ReadInt32();
+                for (int i = 0; i < n; i++)
+                    Active.Add(new Rent { Stadium = r.ReadUInt16(), Band = r.ReadString(), Start = r.ReadUInt32(), End = r.ReadUInt32(), Event = r.ReadUInt16(), AnchorPrev = r.ReadUInt16(), AnchorExpire = r.ReadUInt32(), State = r.ReadByte() });
+                n = r.ReadInt32();
+                for (int i = 0; i < n; i++) Log.Add(new RentLog { Stadium = r.ReadUInt16(), Band = r.ReadString(), Start = r.ReadUInt32() });
+            }
+        }
+
+        /// <summary>자체 검사: 쓰고 다시 읽어 같은지. 틀리면 설명, 맞으면 null.</summary>
+        public static string SelfCheck()
+        {
+            byte[] keep = Write();
+            try
+            {
+                Clear();
+                lock (gate)
+                {
+                    Rented.Add(31);
+                    Active.Add(new Rent { Stadium = 31, Band = "Band A", Start = 100, End = 200, Event = 7, AnchorPrev = 5, AnchorExpire = 90, State = 1 });
+                    Log.Add(new RentLog { Stadium = 31, Band = "Band B", Start = 50 });
+                }
+                Read(Write());
+                lock (gate)
+                {
+                    var a = Active.Count == 1 ? Active[0] : null;
+                    return Rented.Count != 1 || Rented[0] != 31 || a == null || a.Band != "Band A" || a.Start != 100 || a.End != 200 || a.Event != 7 || a.AnchorPrev != 5 || a.AnchorExpire != 90 || a.State != 1
+                        || Log.Count != 1 || Log[0].Band != "Band B" || Log[0].Start != 50 ? "대관을 쓰고 읽은 값이 달라요" : null;
+                }
+            }
+            finally
+            {
+                Read(keep);
+            }
+        }
+    }
+
+    /// <summary>모든 이벤트를 만들 때(경기 포함) 앞: 경기장 공연 다음 경기면 앞 이벤트를 공연 앞 경기로.</summary>
+    [HarmonyPatch(typeof(EventAI), nameof(EventAI.CreateEvent))]
+    internal static class EventCreatePatch
+    {
+        static void Prefix(EventAI __instance, ref EventData data)
+        {
+            try
+            {
+                Rental.OnEventCreate(__instance, ref data);
+            }
+            catch (Exception e)
+            {
+                Core.Safe.Report("공연장 대관: 다음 경기", e);
+            }
+        }
+    }
+
+    /// <summary>세이브에 대관(빌린 경기장 · 넣은 공연 · 기록)을 넣고 꺼냄.</summary>
+    public sealed class RentalSave : SerializableDataExtensionBase
+    {
+        public override void OnLoadData()
+        {
+            Rental.Clear();
+            try
+            {
+                var data = serializableDataManager.LoadData(Rental.SaveKey);
+                if (data != null && data.Length > 0) Rental.Read(data);
+            }
+            catch (Exception e)
+            {
+                Core.Log.Warn("대관을 읽지 못해 빌린 경기장 없이 시작: " + e.Message);
+                Rental.Clear();
+            }
+        }
+
+        public override void OnSaveData()
+        {
+            try
+            {
+                serializableDataManager.SaveData(Rental.SaveKey, Rental.Write());
+            }
+            catch (Exception e)
+            {
+                Core.Log.Error("대관 저장 실패: " + e);
+            }
+        }
+    }
+}

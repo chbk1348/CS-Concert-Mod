@@ -13,13 +13,28 @@ namespace ConcertMod
 
         public readonly ConcertWindow Window = new();
 
-        Action esc, gui;
+        Action esc, gui, tick;
+        float tickAt;
+
+        /// <summary>공연 데이터 다시 읽는 간격(초).</summary>
+        const float TickSeconds = 1f;
 
         void Awake()
         {
             Instance = this;
             esc = EscClose;
             gui = DrawGui;
+            tick = () =>
+            {
+                if (Time.realtimeSinceStartup - tickAt < TickSeconds) return;
+                tickAt = Time.realtimeSinceStartup;
+                Data.Shows.Refresh();
+                Data.History.Track();
+                Data.Letters.Tick();
+                Data.Rental.Tick();
+                Data.Sound.Tick();
+                Data.Tickets.Refresh();
+            };
         }
 
         void OnDestroy()
@@ -31,6 +46,7 @@ namespace ConcertMod
         void Update()
         {
             Safe.Run("Esc 닫기", esc);
+            if (Data.Shows.HasDlc) Safe.Run("공연 읽기", tick);
             InputBlocker.Begin("ConcertMod");
             if (!ColossalFramework.UI.UIView.HasModalInput())
             {
@@ -111,6 +127,15 @@ namespace ConcertMod
 
         protected override void LoadedActions(LoadMode mode)
         {
+            if (Data.Shows.HasDlc) Safe.Run("밴드 목록", Data.Shows.LoadBands);
+            string bad = Data.History.SelfCheck();
+            if (bad != null) Log.Warn("공연 기록 자체 검사 실패: " + bad);
+            bad = Data.Booking.SelfCheck();
+            if (bad != null) Log.Warn("공연 예약 자체 검사 실패: " + bad);
+            bad = Data.Letters.SelfCheck();
+            if (bad != null) Log.Warn("의향서 자체 검사 실패: " + bad);
+            bad = Data.Rental.SelfCheck();
+            if (bad != null) Log.Warn("대관 자체 검사 실패: " + bad);
             host = new GameObject("ConcertMod");
             host.AddComponent<ConcertController>();
         }
@@ -123,6 +148,13 @@ namespace ConcertMod
             {
                 if (h != null) UnityEngine.Object.Destroy(h);
             });
+            Data.Shows.Clear();
+            Data.History.Clear();
+            Data.Booking.Current = null;
+            Data.Tickets.Clear();
+            Data.Letters.Clear();
+            Data.Rental.Clear();
+            Data.Sound.Clear();
             base.OnLevelUnloading();
         }
     }
