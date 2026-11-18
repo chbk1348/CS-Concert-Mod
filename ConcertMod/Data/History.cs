@@ -104,6 +104,7 @@ namespace ConcertMod.Data
                 w.Write(r.PopDelta);
                 w.Write(r.PopAfter);
                 w.Write(r.Success);
+                w.Write(r.Security);
                 w.Write(r.Pops.Count);
                 foreach (var kv in r.Pops)
                 {
@@ -115,13 +116,27 @@ namespace ConcertMod.Data
             return ms.ToArray();
         }
 
+        /// <summary>읽기. 0.2.0 판은 형식 2 인데 보안 예산을 쓰지 않았음 → 그렇게 읽다 어긋나면 보안 예산 없이 다시 읽음.</summary>
         public static void Read(byte[] data)
+        {
+            try
+            {
+                Read(data, true);
+            }
+            catch (Exception)
+            {
+                Read(data, false);
+            }
+        }
+
+        static void Read(byte[] data, bool security)
         {
             Clear();
             using var r = new BinaryReader(new MemoryStream(data));
             int format = r.ReadInt32();
             if (format > Format) throw new InvalidDataException($"공연 기록 형식 {format} 은 이 판보다 새것");
             int n = r.ReadInt32();
+            if (n < 0 || n > Keep) throw new InvalidDataException($"공연 기록 수 {n} 이 이상해요");
             for (int i = 0; i < n; i++)
             {
                 var rec = new Record
@@ -137,12 +152,13 @@ namespace ConcertMod.Data
                     PopAfter = r.ReadInt32(),
                     Success = r.ReadBoolean(),
                 };
-                if (format >= 2) rec.Security = r.ReadInt32();
+                if (format >= 2 && security) rec.Security = r.ReadInt32();
                 int m = r.ReadInt32();
                 for (int k = 0; k < m; k++) rec.Pops[r.ReadString()] = r.ReadInt32();
                 All.Add(rec);
                 seen.Add(rec.Frame);
             }
+            if (r.BaseStream.Position != r.BaseStream.Length) throw new InvalidDataException("공연 기록 뒤에 남은 자료가 있어요");
         }
 
         /// <summary>자체 검사: 쓰고 다시 읽어 같은지. 틀리면 설명, 맞으면 null.</summary>
@@ -158,6 +174,18 @@ namespace ConcertMod.Data
                 Read(Write());
                 var b = All.Count == 1 ? All[0] : null;
                 if (b == null || b.Key != a.Key || b.Visitors != a.Visitors || b.PopDelta != a.PopDelta || !b.Success || b.Security != 1200 || b.Pops["Band A"] != 61) return "공연 기록을 쓰고 읽은 값이 달라요";
+                // 0.2.0 판 세이브: 형식 2 인데 보안 예산 없음
+                using (var ms = new MemoryStream())
+                using (var w = new BinaryWriter(ms))
+                {
+                    w.Write(2); w.Write(1);
+                    w.Write(7u); w.Write("Band A"); w.Write("공연장"); w.Write(1L); w.Write(2L); w.Write(3L); w.Write(8412); w.Write(-3); w.Write(61); w.Write(true);
+                    w.Write(1); w.Write("Band A"); w.Write(61);
+                    w.Flush();
+                    Read(ms.ToArray());
+                }
+                b = All.Count == 1 ? All[0] : null;
+                if (b == null || b.Key != "Band A" || b.Visitors != 8412 || b.Pops["Band A"] != 61) return "0.2.0 판 공연 기록을 읽지 못해요";
                 return null;
             }
             finally
