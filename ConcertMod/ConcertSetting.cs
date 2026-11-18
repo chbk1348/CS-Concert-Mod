@@ -23,6 +23,24 @@ namespace ConcertMod
         /// <summary>머리줄을 끌어 옮긴 거리.</summary>
         public float WindowDX, WindowDY;
 
+        /// <summary>예매: 공연 7일 전에 열고, 예매한 만큼만 관객이 와요(끄면 게임대로).</summary>
+        public bool Ticketing = true;
+
+        /// <summary>공연 중 공연 소리: 공연장(경기장 포함) 관중 · 공연 소리를 끊기지 않게 · 더 멀리까지.</summary>
+        public bool ConcertSound = true;
+
+        /// <summary>공연 중 배경음악: 공연이 열리는 동안 게임 배경음악을 줄여 공연 소리가 들리게 · 끝나면 원래대로.</summary>
+        public bool ConcertMusic = true;
+
+        /// <summary>알림: 공연이 시작하면 · 끝나면(관객 · 수입 · 성공) 화면 위 토스트.</summary>
+        public bool NotifyStart = true, NotifyResult = true;
+
+        /// <summary>예매 오픈: 공연 며칠 전(20:00) · 주민 한 명이 살 수 있는 최대 매수.</summary>
+        public int TicketOpenDays = 7, TicketMax = 4;
+
+        /// <summary>자세한 로그: 예약 · 의향서 · 대관을 output_log 에.</summary>
+        public bool VerboseLog;
+
         public static void Load() => Current = Load<ConcertSetting>(FilePath);
 
         public static void Save() => Save(FilePath, Current);

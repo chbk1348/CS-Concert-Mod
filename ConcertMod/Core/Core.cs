@@ -9,6 +9,12 @@ namespace ConcertMod.Core
     {
         public static void Info(string message) => CSCommonLog.Info(message);
 
+        /// <summary>설정 '자세한 로그'가 켜졌을 때만 남김.</summary>
+        public static void Detail(string message)
+        {
+            if (ConcertSetting.Current.VerboseLog) CSCommonLog.Info(message);
+        }
+
         public static void Warn(string message) => CSCommonLog.Warn(message);
 
         public static void Error(string message) => CSCommonLog.Error(message);
