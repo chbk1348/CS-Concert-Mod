@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using ColossalFramework;
+using ConcertMod.Core;
 using UnityEngine;
 
 namespace ConcertMod.Data
@@ -89,6 +90,7 @@ namespace ConcertMod.Data
                 b.Price = b.Info.m_eventAI.m_ticketPrice + b.Info.m_ticketPriceOffset;
             }
             Festival = FindFestival();
+            AutoLevel3();
             FestivalName = Festival != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(Festival, InstanceID.Empty) ?? "" : "";
             ReadEvents();
             Next.Clear();
@@ -104,6 +106,27 @@ namespace ConcertMod.Data
                     if (b != null) Next.Add(new NextShow { Band = b, Start = future[i].m_startTime });
                 }
             }
+        }
+
+        /// <summary>지난번 3단계로 올리려 한 페스티벌 구역(같은 건물은 한 번만 시도 — 올릴 단계가 없는 애셋이면 다시 안 봄).</summary>
+        static ushort leveled;
+
+        /// <summary>페스티벌 구역을 지으면 바로 3단계로(게임 정보 창 업그레이드와 같은 UpgradeBuilding · 해금 조건 · 비용 없이).</summary>
+        static void AutoLevel3()
+        {
+            ushort b = Festival;
+            if (b == 0 || b == leveled) return;
+            leveled = b;
+            Singleton<SimulationManager>.instance.AddAction(() => Safe.Run("페스티벌 3단계", () =>
+            {
+                var bm = Singleton<BuildingManager>.instance;
+                for (int i = 0; i < 2; i++)
+                {
+                    var info = bm.m_buildings.m_buffer[b].Info;
+                    if (info == null || info.m_class.m_level >= ItemClass.Level.Level3 || !bm.UpgradeBuilding(b, false)) break;
+                    Log.Info("페스티벌 구역 " + b + " → " + bm.m_buildings.m_buffer[b].Info?.m_class.m_level);
+                }
+            }));
         }
 
         static ushort FindFestival()

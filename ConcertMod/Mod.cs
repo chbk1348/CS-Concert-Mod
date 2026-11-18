@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.2.3";
+        public const string Version = "0.2.4";
 
         public override string BaseName => "콘서트 Extension";
 
@@ -27,6 +27,8 @@ namespace ConcertMod
         static readonly CSCommonRelease[] Changelog =
         {
             new(Version, "2026-11-18",
+                "[신규] 페스티벌 구역을 지으면 바로 3단계로 올라가요(해금 조건 · 업그레이드 비용 없이)"),
+            new("0.2.3", "2026-11-18",
                 "[변경] 모드 이름을 '콘서트 Extension' 로 바꿨어요"),
             new("0.2.2", "2026-11-18",
                 "[수정] 공연장 카드 좌석이 카드 밖으로 넘치던 문제 · 경기 표시만 붙은 다른 건물(택시 회사 등)이 경기장으로 잡히던 문제",
