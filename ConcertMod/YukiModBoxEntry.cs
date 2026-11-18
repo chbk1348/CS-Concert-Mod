@@ -1,7 +1,7 @@
 // 모드 허브 연결 계약 v1. 원본: CS-YukiModBox/contract/YukiModBoxEntry.cs — 고치면 원본도 같이.
 // 허브(YukiModBox.dll)가 이 모드 어셈블리에서 이름 'YukiModBoxEntry'(전역 이름공간)로 찾아 리플렉션으로 부름.
 // 규칙: 정적 멤버 · 기본 형만(CSCommon 형식은 DLL 을 건너지 못함). 본 스레드에서만 불림. 던져도 허브가 잡음.
-// 이 모드: 콘서트 Extended(공연 창, 허브를 숨기는 도구 아님).
+// 이 모드: 콘서트 Extension(공연 창, 허브를 숨기는 도구 아님).
 public static class YukiModBoxEntry
 {
     /// <summary>계약 판. 이름 · 뜻이 바뀌면 올림(덧붙이기만 하면 그대로).</summary>
@@ -11,7 +11,7 @@ public static class YukiModBoxEntry
     public static string Id => "CS-Concert-Mod";
 
     /// <summary>목록 이름(판 없이).</summary>
-    public static string Name => "콘서트 Extended";
+    public static string Name => "콘서트 Extension";
 
     /// <summary>아이콘 SVG path(24 viewBox, 음표 두 개 획).</summary>
     public static string Icon => "M9 18V5l12-2v13M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6z";

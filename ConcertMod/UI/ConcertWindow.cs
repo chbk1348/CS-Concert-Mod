@@ -7,7 +7,7 @@ using S = CSCommonUX.Section;
 namespace ConcertMod.UI
 {
     /// <summary>
-    /// 콘서트 창(캔버스 '[CSCommonUX 3.0] 콘서트 Extended'): 머리줄 · 우물 몸(판을 위에서 아래로, 툴바 높이만큼 안쪽 아래 여백) · 하단 알약 툴바 일정 · 차트 · 예매 · 흥행 · 예약 + 설정 FAB.
+    /// 콘서트 창(캔버스 '[CSCommonUX 3.0] 콘서트 Extension'): 머리줄 · 우물 몸(판을 위에서 아래로, 툴바 높이만큼 안쪽 아래 여백) · 하단 알약 툴바 일정 · 차트 · 예매 · 흥행 · 예약 + 설정 FAB.
     /// 0.2 판: 일정 · 차트 · 흥행 · 예약(다음 공연)은 게임 공연 데이터로, 예매는 다음 판에서.
     /// </summary>
     internal sealed partial class ConcertWindow
@@ -95,7 +95,7 @@ namespace ConcertMod.UI
             HandleDrag(Rect);
             var r = Rect;
             Panel.Frame(r, D.RadiusWindow);
-            string title = "콘서트 Extended · " + Names[tab] + (tab == TabBooking ? " · " + BookSubs[bookSub] : "");
+            string title = "콘서트 Extension · " + Names[tab] + (tab == TabBooking ? " · " + BookSubs[bookSub] : "");
             var now = SimulationManager.instance.m_currentGameTime;
             if (WindowHead.In(r, null, title, Mod.Version, HeadSub(), $"{now.Year}년 {now.Month}월 {now.Day}일 {now.Hour:00}:{now.Minute:00}", Shows.Now != null && Shows.Now.Active ? "공연 중" : "", Pal.Primary, "닫기(Esc)")) Close();
             DrawBody(r);
@@ -269,7 +269,7 @@ namespace ConcertMod.UI
                 e.Use();
             }
             if (Draw.Repaint) Fab.In(r, YukiModBoxEntry.Icon, FabTone.Plain, Visible);
-            if (!fabDragging && Draw.Hover(r)) Tooltip.Draw(r, "콘서트 Extended · 끌어서 옮기기");
+            if (!fabDragging && Draw.Hover(r)) Tooltip.Draw(r, "콘서트 Extension · 끌어서 옮기기");
         }
     }
 }

@@ -80,9 +80,9 @@
 
 ---
 
-## 7. 모드 전용 규칙 — 콘서트 Extended
+## 7. 모드 전용 규칙 — 콘서트 Extension
 
-- **디자인 기준**: 화면은 캔버스 「[CSCommonUX 3.0] 콘서트 Extended」(https://claude.ai/artifact/SiPG5KdUX6uWE9VPjTPrZ9) 보드를 따른다.
+- **디자인 기준**: 화면은 캔버스 「[CSCommonUX 3.0] 콘서트 Extension」(https://claude.ai/artifact/SiPG5KdUX6uWE9VPjTPrZ9) 보드를 따른다.
   - 다크 · Violet 팔레트. 탭은 일정 · 차트 · 흥행 · 예약, 설정은 FAB.
 - **실제 데이터만**: 페스티벌 구역(FestivalAreaAI) · 공연 이벤트(ConcertAI · EventManager)에서 만든다. 가짜 밴드 · 가짜 공연 행은 만들지 않는다.
 - **DLC 없을 때**: 콘서트 DLC(SteamHelper.DLC.MusicFestival)가 없으면 창은 안내만 보이고 게임 데이터를 읽지 않는다.

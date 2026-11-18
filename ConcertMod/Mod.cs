@@ -12,10 +12,10 @@ namespace ConcertMod
     {
         public const string Version = "0.2.3";
 
-        public override string BaseName => "콘서트 Extended";
+        public override string BaseName => "콘서트 Extension";
 
-        /// <summary>output_log.txt 머리 [콘서트 Extended].</summary>
-        public override string LogName => "[콘서트 Extended]";
+        /// <summary>output_log.txt 머리 [콘서트 Extension].</summary>
+        public override string LogName => "[콘서트 Extension]";
 
         public override string HarmonyID => "chbk1348.concertmod";
 
@@ -27,7 +27,7 @@ namespace ConcertMod
         static readonly CSCommonRelease[] Changelog =
         {
             new(Version, "2026-11-18",
-                "[변경] 모드 이름을 '콘서트 Extended' 로 바꿨어요"),
+                "[변경] 모드 이름을 '콘서트 Extension' 로 바꿨어요"),
             new("0.2.2", "2026-11-18",
                 "[수정] 공연장 카드 좌석이 카드 밖으로 넘치던 문제 · 경기 표시만 붙은 다른 건물(택시 회사 등)이 경기장으로 잡히던 문제",
                 "[개선] 빌린 경기장에 공연을 못 넣을 때 까닭을 보여 줘요(다음 경기까지 틈이 짧음 · 경기 중 · 밴드 없음)",
