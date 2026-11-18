@@ -1,0 +1,10 @@
+<Project>
+
+  <!-- 하위 폴더 이름은 앞글자를 대문자로: 빌드 결과 Bin · 중간 파일 Obj.
+       Obj는 SDK가 읽기 전에 정해야 해서 csproj가 아니라 여기에 둠 -->
+  <PropertyGroup>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)Bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)Obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+</Project>

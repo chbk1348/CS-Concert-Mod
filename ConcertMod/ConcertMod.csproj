@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net35</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <AssemblyName>CS-Concert-Mod</AssemblyName>
+    <RootNamespace>ConcertMod</RootNamespace>
+    <Version>0.1.0</Version>
+    <Product>콘서트 확장판</Product>
+    <Authors>chbk1348</Authors>
+    <Nullable>disable</Nullable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- 게임 DLL 폴더. 다른 경로면 dotnet build -p:ManagedDir=... 로 덮어씀 -->
+    <ManagedDir Condition="'$(ManagedDir)' == ''">E:\SteamLibrary\steamapps\common\Cities_Skylines\Cities_Data\Managed</ManagedDir>
+    <ModDir>$(LOCALAPPDATA)\Colossal Order\Cities_Skylines\Addons\Mods\CS-Concert-Mod</ModDir>
+    <CommonDir>$(MSBuildThisFileDirectory)..\CSCommonUX\CSCommon\</CommonDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net35" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="CitiesHarmony.API" Version="2.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ColossalManaged">
+      <HintPath>$(ManagedDir)\ColossalManaged.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ICities">
+      <HintPath>$(ManagedDir)\ICities.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(ManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- CSCommonUX 정본(서브모듈 CSCommonUX/): 모드 진입 · Harmony 준비 · 로그 · 설정 · 업데이트 내역 · 그리기 · 설정 패널 · 알림 창 -->
+  <Import Project="$(CommonDir)CSCommon.projitems" Label="Shared" />
+  <!-- CSCommon 디자인 규칙 검사: 모드 코드에 색 값 · 직접 그린 부품이 늘면 빌드 오류(기준 DesignBaseline.txt) -->
+  <Import Project="$(CommonDir)DesignCheck.targets" />
+
+  <!-- 빌드 뒤 게임 로컬 모드 폴더로 복사. 0Harmony.dll은 CitiesHarmony 모드가 주므로 넣지 않음 -->
+  <Target Name="DeployToGame" AfterTargets="Build">
+    <ItemGroup>
+      <DeployFiles Include="$(TargetPath)" />
+      <DeployFiles Include="$(OutDir)CitiesHarmony.API.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(ModDir)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="CS-Concert-Mod → $(ModDir)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,1 @@
+# CSCommon 디자인 규칙 기준(DesignCheck.targets) — 파일마다 색 값 · 직접 그린 IMGUI 부품 개수. 늘리지 말 것, 옮겨서 줄인 뒤 -p:DesignBaseline=update

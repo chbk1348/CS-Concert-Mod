@@ -1,0 +1,7 @@
+Bin/
+Obj/
+.vs/
+*.user
+
+# Docs 폴더는 깃에 올리지 않음
+Docs/

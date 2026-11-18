@@ -1,0 +1,3 @@
+[submodule "CSCommonUX"]
+	path = CSCommonUX
+	url = https://github.com/chbk1348/CSCommonUX.git
