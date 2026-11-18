@@ -57,7 +57,8 @@ namespace ConcertMod.UI
             float hw = (w - gap) * 0.5f;
             for (int i = 0; i < venues.Count; i += 2)
             {
-                float h = Mathf.Max(VenueCardH(venues[i]), i + 1 < venues.Count ? VenueCardH(venues[i + 1]) : 0f);
+                float mw = hw - S.Pad * 2f;
+                float h = Mathf.Max(VenueCardH(venues[i], mw), i + 1 < venues.Count ? VenueCardH(venues[i + 1], mw) : 0f);
                 VenueCard(new Rect(0f, y, hw, h), venues[i]);
                 if (i + 1 < venues.Count) VenueCard(new Rect(hw + gap, y, hw, h), venues[i + 1]);
                 y += h + gap;
@@ -96,15 +97,23 @@ namespace ConcertMod.UI
             return cap;
         }
 
-        float VenueMapH(ushort b)
+        /// <summary>경기장 모양 좌석 간격: 카드 칸 폭에 다 들어가게 줄임(넓으면 예매 탭과 같은 크기).</summary>
+        float VenueStep(ushort b, float mapW)
+        {
+            float step = C.SeatDot + C.SeatGap, avail = mapW - S.Pad * 2f;
+            float cols = IsVarsity(b) ? arenaC[0].Cols : bowlC[0].Cols + bowlL[0].Cols + bowlR[0].Cols, gaps = IsVarsity(b) ? 0f : S.Pad * 3f;
+            return Mathf.Min(step, (avail - gaps) / cols);
+        }
+
+        float VenueMapH(ushort b, float mapW)
         {
             VenueSeats(b, out _);
-            float step = C.SeatDot + C.SeatGap, label = D.LineSub + D.Gap, zg = S.Pad;
+            float step = VenueStep(b, mapW), label = D.LineSub + D.Gap, zg = S.Pad;
             float zones = IsVarsity(b) ? ZonesH(arenaC, step, label, zg) : Mathf.Max(ZonesH(bowlC, step, label, zg), ZonesH(bowlL, step, label, zg));
             return S.Pad + D.LineBody * 1.5f + S.Pad + zones + S.Pad + D.LineSub + S.Pad;
         }
 
-        float VenueCardH(ushort b) => PlateTop + VenueMapH(b) + S.Gap + S.RowH + D.Gap * 3f + C.BarH * 2f + D.LineSub + D.Gap * 3f + S.RowH + S.PadBottom;
+        float VenueCardH(ushort b, float mapW) => PlateTop + VenueMapH(b, mapW) + S.Gap + S.RowH + D.Gap * 3f + C.BarH * 2f + D.LineSub + D.Gap * 3f + S.RowH + S.PadBottom;
 
         void VenueCard(Rect r, ushort b)
         {
@@ -115,23 +124,23 @@ namespace ConcertMod.UI
             var body = Plate(r, bm.GetBuildingName(b, InstanceID.Empty) ?? "경기장", "M3 20h18M5 20V9l7-5 7 5v11M9 20v-6h6v6", varsity ? "대학 경기장" : "축구 경기장 · Match Day");
             // 경기장 모양 포도알 좌석
             int cap = VenueSeats(b, out int per);
-            var map = new Rect(body.x, body.y, body.width, VenueMapH(b));
+            var map = new Rect(body.x, body.y, body.width, VenueMapH(b, body.width));
             if (Draw.Repaint) Draw.Round(map, Pal.ConcertScene, S.Radius - S.Pad * 0.5f);
             var stage = new Rect(map.center.x - S.CodeW * 3f, map.y + S.Pad, S.CodeW * 6f, D.LineBody * 1.5f);
             if (Draw.Repaint) Draw.Round(stage, Pal.ConcertTruss, Board.BoxRadius);
             Draw.TextFit(stage, "무대", D.FontMin, Pal.Light, true, TextAnchor.MiddleCenter);
-            float step = C.SeatDot + C.SeatGap, label = D.LineSub + D.Gap, top = stage.yMax + S.Pad;
+            float step = VenueStep(b, map.width), dot = step * C.SeatDot / (C.SeatDot + C.SeatGap), label = D.LineSub + D.Gap, top = stage.yMax + S.Pad;
             if (varsity)
             {
                 float wc = arenaC[0].Cols * step;
-                DrawZones(arenaC, map.center.x - wc * 0.5f, top, wc, step, label, S.Pad, 0, per);
+                DrawZones(arenaC, map.center.x - wc * 0.5f, top, wc, step, label, S.Pad, 0, per, dot);
             }
             else
             {
                 float wc = bowlC[0].Cols * step, ws = bowlL[0].Cols * step, gx = S.Pad * 1.5f, xc = map.center.x - wc * 0.5f;
-                DrawZones(bowlC, xc, top, wc, step, label, S.Pad, 0, per);
-                DrawZones(bowlL, xc - gx - ws, top, ws, step, label, S.Pad, 0, per);
-                DrawZones(bowlR, xc + wc + gx, top, ws, step, label, S.Pad, 0, per);
+                DrawZones(bowlC, xc, top, wc, step, label, S.Pad, 0, per, dot);
+                DrawZones(bowlL, xc - gx - ws, top, ws, step, label, S.Pad, 0, per, dot);
+                DrawZones(bowlR, xc + wc + gx, top, ws, step, label, S.Pad, 0, per, dot);
             }
             Draw.TextFit(new Rect(map.x, map.yMax - S.Pad - D.LineSub, map.width, D.LineSub), $"공연 정원 {cap:#,0}명 · 점 하나 = {per}명", D.FontMin, S.SubInk, false, TextAnchor.MiddleCenter);
 
@@ -188,7 +197,7 @@ namespace ConcertMod.UI
                 text = $"{Artists.Of(rent.Band)} · {When(sim.FrameToTime(rent.Start))} 공연" + (rent.State == 0 ? " · 자리 잡는 중" : " 잡힘");
                 ink = Pal.Txt;
             }
-            else if (on) text = "다음 경기 전 틈이 생기면 인기 1위 밴드로 공연을 잡아요";
+            else if (on) text = Rental.WaitReason(b) ?? "다음 경기 전 틈이 생기면 인기 1위 밴드로 공연을 잡아요";
             else
             {
                 text = "빌리기를 켜면 다음 경기 전 빈 틈에 공연을 잡아요";

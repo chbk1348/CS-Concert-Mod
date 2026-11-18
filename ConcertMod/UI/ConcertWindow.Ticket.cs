@@ -133,7 +133,7 @@ namespace ConcertMod.UI
             return y2 + row2;
         }
 
-        void DrawZones(Zone[] zones, float x, float y, float width, float step, float label, float gap, int soldDots, int per)
+        void DrawZones(Zone[] zones, float x, float y, float width, float step, float label, float gap, int soldDots, int per, float dot = C.SeatDot)
         {
             foreach (var z in zones)
             {
@@ -143,7 +143,7 @@ namespace ConcertMod.UI
                 {
                     bool sold = seatRank != null && z.First + k < seatRank.Length && seatRank[z.First + k] < soldDots;
                     if (!sold) left++;
-                    if (Draw.Repaint) Draw.Dot(new Vector2(zx + (k % z.Cols) * step + C.SeatDot * 0.5f, y + (k / z.Cols) * step + C.SeatDot * 0.5f), C.SeatDot * 0.5f, sold ? Pal.ConcertSold : C.Seat(z.Grade));
+                    if (Draw.Repaint) Draw.Dot(new Vector2(zx + (k % z.Cols) * step + dot * 0.5f, y + (k / z.Cols) * step + dot * 0.5f), dot * 0.5f, sold ? Pal.ConcertSold : C.Seat(z.Grade));
                 }
                 y += rows * step;
                 Draw.TextFit(new Rect(x - S.Pad, y, width + S.Pad * 2f, label), left == 0 ? z.Name + " · 매진" : $"{z.Name} · 남은 {left * per:#,0}", D.FontMin, left == 0 ? S.SubInk : Pal.Light, false, TextAnchor.MiddleCenter);

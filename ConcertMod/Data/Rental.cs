@@ -42,13 +42,20 @@ namespace ConcertMod.Data
         public static readonly List<ushort> Rented = new();
         public static readonly List<Rent> Active = new();
         public static readonly List<RentLog> Log = new();
+
+        /// <summary>빌린 경기장마다 이번 단계에서 공연을 못 넣은 까닭(화면 안내 · 넣었거나 기다릴 것 없으면 없음).</summary>
+        static readonly Dictionary<ushort, string> waitWhy = new();
+
+        public static string WaitReason(ushort b) { lock (gate) return waitWhy.TryGetValue(b, out var s) ? s : null; }
         static readonly object gate = new();
 
         /// <summary>경기장(경기 이벤트를 받는 건물) — 본 스레드에서 1초마다 다시 찾음.</summary>
         public static readonly List<ushort> Venues = new();
 
+        /// <summary>경기장: 경기 이벤트를 받는 MonumentAI(Match Day · 대학 경기장) 중 관객 자리가 있는 것 — 경기 플래그만 붙은 다른 애셋(택시 회사 등)은 뺌.</summary>
         public static bool IsStadium(BuildingInfo info) =>
-            info != null && info.m_buildingAI is PlayerBuildingAI ai && (ai.m_supportEvents & (EventManager.EventType.Football | EventManager.EventType.VarsitySportsMatch)) != 0;
+            info != null && info.m_buildingAI is MonumentAI ai && (ai.m_supportEvents & (EventManager.EventType.Football | EventManager.EventType.VarsitySportsMatch)) != 0
+            && ai.m_visitPlaceCount0 + ai.m_visitPlaceCount1 + ai.m_visitPlaceCount2 > 0;
 
         static uint Frames(float hours) => (uint)Mathf.RoundToInt(hours * SimulationManager.DAYTIME_HOUR_TO_FRAME);
 
@@ -116,19 +123,25 @@ namespace ConcertMod.Data
                 Rented.RemoveAll(b => !IsStadium(bm.m_buildings.m_buffer[b].Info));
                 // 끝내 못 만든 넣기 · 다른 길로 사라진 공연(건물 철거 등)은 거둠
                 Active.RemoveAll(r => r.State == 0 ? now > r.Start : em.m_events.m_buffer[r.Event].Info?.name != r.Band || (em.m_events.m_buffer[r.Event].m_flags & EventData.Flags.Deleted) != 0);
+                waitWhy.Clear();
                 foreach (ushort s in Rented)
                 {
                     if (ActiveAtLocked(s) != null) continue;
                     ushort head = bm.m_buildings.m_buffer[s].m_eventIndex;
-                    if (head == 0) continue;
+                    if (head == 0) { waitWhy[s] = "게임이 다음 경기를 잡으면 그 앞 틈을 봐요"; continue; }
                     ref var match = ref em.m_events.m_buffer[head];
-                    if (match.m_flags != EventData.Flags.Created) continue;
+                    if (match.m_flags != EventData.Flags.Created) { waitWhy[s] = "경기 중이에요 · 끝나고 다음 경기 앞 틈을 봐요"; continue; }
                     if (match.Info?.m_eventAI is not SportMatchAI mai) continue;
                     var band = PickBand();
-                    if (band?.Info?.m_eventAI is not ConcertAI cai) continue;
+                    if (band?.Info?.m_eventAI is not ConcertAI cai) { waitWhy[s] = "공연할 밴드가 없어요"; continue; }
                     uint start = Booking.AtHour(now + Frames(cai.m_prepareDuration), Mathf.RoundToInt(cai.m_startTime));
                     uint end = start + Frames(cai.m_eventDuration + cai.m_disorganizeDuration);
-                    if (end + Frames(MarginHours) > match.m_startFrame - Frames(mai.m_prepareDuration)) continue;
+                    if (end + Frames(MarginHours) > match.m_startFrame - Frames(mai.m_prepareDuration))
+                    {
+                        // 다른 모드(프로야구 리그 홈구장 등)가 경기를 쉬지 않고 이으면 늘 여기
+                        waitWhy[s] = $"다음 경기({Singleton<SimulationManager>.instance.FrameToTime(match.m_startFrame):M월 d일})까지 틈이 짧아 기다려요";
+                        continue;
+                    }
                     ushort prev = match.m_nextBuildingEvent;
                     var r = new Rent { Stadium = s, Band = band.Key, Start = start, End = end, AnchorPrev = prev, AnchorExpire = prev != 0 ? em.m_events.m_buffer[prev].m_expireFrame : 0u };
                     Active.Add(r);

@@ -146,6 +146,7 @@ namespace ConcertMod.Data
                 w.Write(p.Anchor);
                 w.Write(p.LastStart);
             }
+            w.Write(LastPlanStart); // 뒤에 덧붙임: 옛 판은 여기서 끝나 읽지 않음
             w.Flush();
             return ms.ToArray();
         }
@@ -153,27 +154,32 @@ namespace ConcertMod.Data
         public static void Read(byte[] data)
         {
             Current = null;
+            LastPlanStart = 0;
             using var r = new BinaryReader(new MemoryStream(data));
             int format = r.ReadInt32();
             if (format > Format) throw new InvalidDataException($"공연 예약 형식 {format} 은 이 판보다 새것");
-            if (!r.ReadBoolean()) return;
-            Current = new Plan { Band = r.ReadString(), Building = r.ReadUInt16(), Days = r.ReadInt32(), Hour = r.ReadInt32(), Done = r.ReadInt32(), Anchor = r.ReadUInt32(), LastStart = r.ReadUInt32() };
+            if (r.ReadBoolean())
+                Current = new Plan { Band = r.ReadString(), Building = r.ReadUInt16(), Days = r.ReadInt32(), Hour = r.ReadInt32(), Done = r.ReadInt32(), Anchor = r.ReadUInt32(), LastStart = r.ReadUInt32() };
+            if (r.BaseStream.Length - r.BaseStream.Position >= 4) LastPlanStart = r.ReadUInt32();
         }
 
         /// <summary>자체 검사: 쓰고 다시 읽어 같은지. 틀리면 설명, 맞으면 null.</summary>
         public static string SelfCheck()
         {
             var keep = Current;
+            uint keepLast = LastPlanStart;
             try
             {
                 Current = new Plan { Band = "Band A", Building = 12, Days = 3, Hour = 19, Done = 1, Anchor = 9, LastStart = 77 };
+                LastPlanStart = 55;
                 Read(Write());
                 var p = Current;
-                return p == null || p.Band != "Band A" || p.Building != 12 || p.Days != 3 || p.Hour != 19 || p.Done != 1 || p.Anchor != 9 || p.LastStart != 77 ? "공연 예약을 쓰고 읽은 값이 달라요" : null;
+                return p == null || p.Band != "Band A" || p.Building != 12 || p.Days != 3 || p.Hour != 19 || p.Done != 1 || p.Anchor != 9 || p.LastStart != 77 || LastPlanStart != 55 ? "공연 예약을 쓰고 읽은 값이 달라요" : null;
             }
             finally
             {
                 Current = keep;
+                LastPlanStart = keepLast;
             }
         }
     }
@@ -220,6 +226,7 @@ namespace ConcertMod.Data
         public override void OnLoadData()
         {
             Booking.Current = null;
+            Booking.LastPlanStart = 0;
             try
             {
                 var data = serializableDataManager.LoadData(Booking.SaveKey);
