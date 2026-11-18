@@ -128,16 +128,26 @@ namespace ConcertMod
         protected override void LoadedActions(LoadMode mode)
         {
             if (Data.Shows.HasDlc) Safe.Run("밴드 목록", Data.Shows.LoadBands);
-            string bad = Data.History.SelfCheck();
-            if (bad != null) Log.Warn("공연 기록 자체 검사 실패: " + bad);
-            bad = Data.Booking.SelfCheck();
-            if (bad != null) Log.Warn("공연 예약 자체 검사 실패: " + bad);
-            bad = Data.Letters.SelfCheck();
-            if (bad != null) Log.Warn("의향서 자체 검사 실패: " + bad);
-            bad = Data.Rental.SelfCheck();
-            if (bad != null) Log.Warn("대관 자체 검사 실패: " + bad);
+            // 자체 검사는 경고만: 던져도 모드 붙이기를 멈추지 않음
+            SelfCheck("공연 기록", Data.History.SelfCheck);
+            SelfCheck("공연 예약", Data.Booking.SelfCheck);
+            SelfCheck("의향서", Data.Letters.SelfCheck);
+            SelfCheck("대관", Data.Rental.SelfCheck);
             host = new GameObject("ConcertMod");
             host.AddComponent<ConcertController>();
+        }
+
+        static void SelfCheck(string what, Func<string> check)
+        {
+            try
+            {
+                string bad = check();
+                if (bad != null) Log.Warn($"{what} 자체 검사 실패: {bad}");
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"{what} 자체 검사 예외: {e.GetType().Name}: {e.Message}");
+            }
         }
 
         public override void OnLevelUnloading()

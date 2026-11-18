@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.2.0";
+        public const string Version = "0.2.1";
 
         public override string BaseName => "콘서트 확장판";
 
@@ -27,6 +27,8 @@ namespace ConcertMod
         static readonly CSCommonRelease[] Changelog =
         {
             new(Version, "2026-11-18",
+                "[수정] 도시를 불러와도 창이 열리지 않던 문제(허브에서 '대기') · 공연 기록 저장에서 보안 예산이 빠져 있던 문제 · 0.2.0 으로 저장한 공연 기록도 읽어요"),
+            new("0.2.0", "2026-11-18",
                 "[신규] 일정: 지금 무대 · 다음 공연 표 · 지난 공연 · 공연장 주변(소음 · 치안 · 관객)을 게임 공연 데이터로 보여 줘요",
                 "[신규] 차트: 밴드 인기 순위 · 1위 카드 · 인기 추이 · 명예의 전당 · 밴드 이름은 아티스트 40팀으로",
                 "[신규] 흥행: 공연별 관객 · 입장권 수입 · 보안 비용 · 이익 정산서 · 달마다 흐름 · 흥행왕 · 공연 기록은 세이브에 남아요",
