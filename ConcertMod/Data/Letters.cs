@@ -69,7 +69,7 @@ namespace ConcertMod.Data
 
         static void TickLocked()
         {
-            if (Shows.Festival == 0 || Shows.Bands.Count == 0) return;
+            if (Shows.Venue == 0 || Shows.Bands.Count == 0) return;
             var now = SimulationManager.instance.m_currentGameTime;
             if (NextAt == default) NextAt = now.Date.AddDays(1);
             foreach (var l in All)
@@ -98,7 +98,8 @@ namespace ConcertMod.Data
         /// <summary>새 계획을 잡아도 되는지: 페스티벌 맨 앞 이벤트가 방금 만든 계획 마지막 회차(아직 준비 전)가 아닐 때.</summary>
         static bool FreeSlot()
         {
-            ushort head = Singleton<BuildingManager>.instance.m_buildings.m_buffer[Shows.Festival].m_eventIndex;
+            if (Shows.StadiumVenue) return true; // 경기장 계획은 대관이 빈 틈마다 넣어 덮어쓸 회차가 없음
+            ushort head = Singleton<BuildingManager>.instance.m_buildings.m_buffer[Shows.Venue].m_eventIndex;
             if (head == 0) return true;
             ref var e = ref Singleton<EventManager>.instance.m_events.m_buffer[head];
             bool started = (e.m_flags & (EventData.Flags.Preparing | EventData.Flags.Active | EventData.Flags.Completed | EventData.Flags.Cancelled)) != 0;
@@ -189,10 +190,10 @@ namespace ConcertMod.Data
                 Keys = new[] { "희망 공연장", "희망 일정", "희망 입장권", "예상 관객", l.Site >= 0 ? "예매처" : "시에 드릴 것" },
                 Vals = new[]
                 {
-                    Shows.FestivalName.Length > 0 ? Shows.FestivalName : "페스티벌 구역",
+                    Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장",
                     $"{l.Days}일 · 매일 {l.Hour:00}:00 시작",
                     price,
-                    $"회차마다 약 {Tickets.SessionCap(Shows.Festival):#,0}명 · 인기 {pop}",
+                    $"회차마다 약 {Tickets.SessionCap(Shows.Venue):#,0}명 · 인기 {pop}",
                     l.Site >= 0 ? $"{from} 단독 예매" : "입장권 수입은 시에 그대로",
                 },
             };

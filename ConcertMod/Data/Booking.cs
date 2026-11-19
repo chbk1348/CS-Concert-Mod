@@ -19,6 +19,8 @@ namespace ConcertMod.Data
         public int Days, Hour, Done;
         /// <summary>계획을 잡을 때 페스티벌 맨 앞 이벤트가 끝나는 프레임(이 칸 다음 공연에만 적용) · 바로 앞 회차 시작 프레임.</summary>
         public uint Anchor, LastStart;
+        /// <summary>기본 공연장이 빌린 경기장(페스티벌 구역 없음): 회차는 대관이 경기 사이 빈 틈마다 하나씩 넣음.</summary>
+        public bool Stadium;
     }
 
     internal static class Booking
@@ -48,7 +50,7 @@ namespace ConcertMod.Data
 
         /// <summary>이 칸에 계획을 쓸지: 첫 회차는 잡을 때 그 칸 · 다음 회차는 앞 회차가 같은 밴드일 때.</summary>
         static bool Applies(Plan p, ushort building, EventInfo prev, uint prevExpire, EventInfo band) =>
-            p != null && band != null && building == p.Building && p.Done < p.Days &&
+            p != null && !p.Stadium && band != null && building == p.Building && p.Done < p.Days &&
             (p.Done == 0 ? prevExpire == p.Anchor : prev == band);
 
         static EventInfo BandInfo(Plan p) => p == null ? null : Shows.BandOf(p.Band)?.Info;
@@ -93,13 +95,35 @@ namespace ConcertMod.Data
             }
         }
 
+        /// <summary>대관이 경기장 공연을 만들었을 때(시뮬레이션 스레드): 경기장 계획 회차를 셈.</summary>
+        public static void OnStadiumShow(ushort stadium, string band, uint start)
+        {
+            var p = Current;
+            if (p == null || !p.Stadium || p.Building != stadium || p.Band != band) return;
+            p.LastStart = start;
+            p.Done++;
+            if (p.Done >= p.Days)
+            {
+                LastPlanStart = start;
+                Current = null;
+            }
+        }
+
         /// <summary>계획 잡기(본 스레드에서 부름 → 시뮬레이션 스레드). 이미 만들어진 아직 준비 전 공연은 지워 게임이 계획대로 다시 만들게.</summary>
         public static void Set(string bandKey, int days, int hour)
         {
-            ushort festival = Shows.Festival;
+            ushort festival = Shows.Venue;
             if (festival == 0) return;
+            bool stadium = festival != Shows.Festival;
             SimulationManager.instance.AddAction(() =>
             {
+                if (stadium)
+                {
+                    // 경기장: 자리 잡는 중인 넣기를 거두면 대관이 다음 빈 틈에 이 계획대로 다시 넣음
+                    Rental.DropPlanned(festival);
+                    Current = new Plan { Band = bandKey, Building = festival, Days = Mathf.Clamp(days, MinDays, MaxDays), Hour = Mathf.Clamp(hour, 0, 23), Stadium = true };
+                    return;
+                }
                 var em = Singleton<EventManager>.instance;
                 ref var building = ref Singleton<BuildingManager>.instance.m_buildings.m_buffer[festival];
                 ushort head = building.m_eventIndex;
@@ -147,6 +171,7 @@ namespace ConcertMod.Data
                 w.Write(p.LastStart);
             }
             w.Write(LastPlanStart); // 뒤에 덧붙임: 옛 판은 여기서 끝나 읽지 않음
+            w.Write(p != null && p.Stadium);
             w.Flush();
             return ms.ToArray();
         }
@@ -161,6 +186,7 @@ namespace ConcertMod.Data
             if (r.ReadBoolean())
                 Current = new Plan { Band = r.ReadString(), Building = r.ReadUInt16(), Days = r.ReadInt32(), Hour = r.ReadInt32(), Done = r.ReadInt32(), Anchor = r.ReadUInt32(), LastStart = r.ReadUInt32() };
             if (r.BaseStream.Length - r.BaseStream.Position >= 4) LastPlanStart = r.ReadUInt32();
+            if (r.BaseStream.Length - r.BaseStream.Position >= 1 && r.ReadBoolean() && Current != null) Current.Stadium = true;
         }
 
         /// <summary>자체 검사: 쓰고 다시 읽어 같은지. 틀리면 설명, 맞으면 null.</summary>
@@ -170,11 +196,11 @@ namespace ConcertMod.Data
             uint keepLast = LastPlanStart;
             try
             {
-                Current = new Plan { Band = "Band A", Building = 12, Days = 3, Hour = 19, Done = 1, Anchor = 9, LastStart = 77 };
+                Current = new Plan { Band = "Band A", Building = 12, Days = 3, Hour = 19, Done = 1, Anchor = 9, LastStart = 77, Stadium = true };
                 LastPlanStart = 55;
                 Read(Write());
                 var p = Current;
-                return p == null || p.Band != "Band A" || p.Building != 12 || p.Days != 3 || p.Hour != 19 || p.Done != 1 || p.Anchor != 9 || p.LastStart != 77 || LastPlanStart != 55 ? "공연 예약을 쓰고 읽은 값이 달라요" : null;
+                return p == null || p.Band != "Band A" || p.Building != 12 || p.Days != 3 || p.Hour != 19 || p.Done != 1 || p.Anchor != 9 || p.LastStart != 77 || !p.Stadium || LastPlanStart != 55 ? "공연 예약을 쓰고 읽은 값이 달라요" : null;
             }
             finally
             {

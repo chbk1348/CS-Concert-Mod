@@ -142,7 +142,7 @@ namespace ConcertMod.UI
             if (Draw.Repaint) Draw.Round(strip, Pal.Inset, Board.BoxRadius * 1.5f);
             NextShow? next = null;
             foreach (var n in Shows.Next) if (n.Band == b) { next = n; break; }
-            Draw.TextFit(new Rect(strip.x + S.Pad, strip.y, strip.width - S.Pad * 2f, strip.height), next.HasValue ? $"다음 공연 {When(next.Value.Start)} · {Shows.FestivalName}" : "잡힌 다음 공연이 없어요", D.FontMin, Pal.Light);
+            Draw.TextFit(new Rect(strip.x + S.Pad, strip.y, strip.width - S.Pad * 2f, strip.height), next.HasValue ? $"다음 공연 {When(next.Value.Start)} · {Shows.VenueName}" : "잡힌 다음 공연이 없어요", D.FontMin, Pal.Light);
             Draw.TextFit(new Rect(strip.x + S.Pad, strip.y, strip.width - S.Pad * 2f, strip.height), Price(b.Price), D.FontDesc, Pal.Txt, true, TextAnchor.MiddleRight);
         }
 

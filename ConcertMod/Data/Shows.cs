@@ -48,7 +48,13 @@ namespace ConcertMod.Data
         public static readonly List<Show> All = new();
         public static readonly List<NextShow> Next = new();
         public static ushort Festival;
-        public static string FestivalName = "";
+
+        /// <summary>공연장: 페스티벌 구역, 없으면 기본 공연장(빌린 경기장) · 이름. 다음 공연 · 예매 · 의향서가 여기로.</summary>
+        public static ushort Venue;
+        public static string VenueName = "";
+
+        /// <summary>공연장이 빌린 경기장(페스티벌 구역 없음).</summary>
+        public static bool StadiumVenue => Venue != 0 && Venue != Festival;
         public static Show Now;
 
         static readonly Dictionary<string, Band> byKey = new();
@@ -91,12 +97,16 @@ namespace ConcertMod.Data
             }
             Festival = FindFestival();
             AutoLevel3();
-            FestivalName = Festival != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(Festival, InstanceID.Empty) ?? "" : "";
+            Venue = Festival != 0 ? Festival : Rental.Default();
+            VenueName = Venue != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(Venue, InstanceID.Empty) ?? "" : "";
             ReadEvents();
             Next.Clear();
             // 이미 만들어진(아직 준비 전) 공연이 먼저, 그 뒤 게임이 정할 칸
             foreach (var s in All)
-                if (s.Building == Festival && !s.Preparing && !s.Active && !s.Done) Next.Add(new NextShow { Band = s.Band, Start = s.Start, Id = s.Id });
+                if (s.Building == Venue && !s.Preparing && !s.Active && !s.Done) Next.Add(new NextShow { Band = s.Band, Start = s.Start, Id = s.Id });
+            // 기본 공연장(경기장): 대관이 자리 잡는 중인 공연(아직 게임 이벤트 전)
+            var rent = StadiumVenue ? Rental.ActiveAt(Venue) : null;
+            if (rent != null && rent.State == 0 && BandOf(rent.Band) is Band rb) Next.Add(new NextShow { Band = rb, Start = SimulationManager.instance.FrameToTime(rent.Start) });
             if (Festival != 0 && Next.Count < future.Length)
             {
                 int n = Singleton<EventManager>.instance.GetFutureEvents(Festival, future, future.Length - Next.Count);
@@ -198,7 +208,8 @@ namespace ConcertMod.Data
             All.Clear();
             Next.Clear();
             Festival = 0;
-            FestivalName = "";
+            Venue = 0;
+            VenueName = "";
             Now = null;
         }
     }

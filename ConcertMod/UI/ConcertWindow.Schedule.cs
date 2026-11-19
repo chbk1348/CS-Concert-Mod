@@ -84,7 +84,7 @@ namespace ConcertMod.UI
             float y = body.y;
             if (Shows.Next.Count == 0)
             {
-                Draw.TextFit(new Rect(body.x, y, body.width, S.RowH), Shows.Festival == 0 ? "페스티벌 구역을 지으면 공연이 잡혀요" : "잡힌 공연이 없어요", D.FontBody, S.SubInk);
+                Draw.TextFit(new Rect(body.x, y, body.width, S.RowH), Shows.Venue == 0 ? "페스티벌 구역이나 경기장(Match Day · 대학)을 지으면 공연이 잡혀요" : "잡힌 공연이 없어요", D.FontBody, S.SubInk);
                 return;
             }
             foreach (var n in Shows.Next)
@@ -108,7 +108,7 @@ namespace ConcertMod.UI
                 Draw.Dot(new Vector2(sx, r.yMax), S.Pad * 0.55f, S.Plate);
             }
             float x = r.x + C.Strip + S.Pad, iw = r.width - C.Strip - C.StubW - S.Pad * 2f, y = r.y + S.Pad;
-            Draw.TextFit(new Rect(x, y, iw, D.LineSub), "입장권 · " + (Shows.FestivalName.Length > 0 ? Shows.FestivalName : "페스티벌 구역"), D.FontMin, S.SubInk);
+            Draw.TextFit(new Rect(x, y, iw, D.LineSub), "입장권 · " + (Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장"), D.FontMin, S.SubInk);
             y += D.LineSub + D.Gap;
             Draw.TextFit(new Rect(x, y, iw, D.LineBody + D.Gap * 2f), n.Band.Name, D.FontValue + D.Gap, Pal.Txt, true);
             y += D.LineBody + D.Gap * 3f;

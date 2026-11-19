@@ -19,7 +19,7 @@ namespace ConcertMod.UI
 
         float LettersTab(float w)
         {
-            if (Shows.Festival == 0) return Note(0f, w, "의향서", "페스티벌 구역을 지으면 아티스트 의향서가 와요");
+            if (Shows.Venue == 0) return Note(0f, w, "의향서", "페스티벌 구역이나 경기장(Match Day · 대학)을 지으면 아티스트 의향서가 와요");
             var all = Letters.All;
             Letter sel = null;
             foreach (var l in all) if (l.Id == pickLetter) sel = l;
@@ -125,7 +125,7 @@ namespace ConcertMod.UI
                 if (start < now) start = start.AddDays(1);
                 var open = start.Date.AddDays(-Tickets.OpenDays).AddHours(Tickets.OpenHour);
                 head = "승인하면 자동으로 잡을 날짜";
-                value = $"{When(start)} · {(Shows.FestivalName.Length > 0 ? Shows.FestivalName : "페스티벌 구역")}";
+                value = $"{When(start)} · {(Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장")}";
                 side = "다음 빈 공연 칸";
                 note = $"{l.Days}일 공연 · 예매 오픈 {(open > now ? When(open) : "바로")} · 입장권 {Price(l.Price)}로 맞춰요";
             }

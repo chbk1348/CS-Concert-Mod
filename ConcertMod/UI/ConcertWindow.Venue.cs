@@ -48,11 +48,12 @@ namespace ConcertMod.UI
                 if (Rental.IsRented(v)) rented++;
                 if (Rental.ActiveAt(v) != null) booked++;
             }
-            float gap = S.Gap, cw = (w - gap * 2f) / 3f;
-            Cell(new Rect(0f, 0f, cw, CellH), "빌린 경기장", $"{rented}곳 · {venues.Count}곳 중");
-            Cell(new Rect(cw + gap, 0f, cw, CellH), "잡힌 경기장 공연", booked + "회");
-            Cell(new Rect((cw + gap) * 2f, 0f, cw, CellH), "지난 경기장 공연", Rental.LogSnapshot().Length + "회");
-            float y = CellH + gap;
+            float gap = S.Gap, cw = (w - gap * 2f) / 3f, y = 0f;
+            if (Shows.StadiumVenue) y = DefaultVenue(w) + gap;
+            Cell(new Rect(0f, y, cw, CellH), "빌린 경기장", $"{rented}곳 · {venues.Count}곳 중");
+            Cell(new Rect(cw + gap, y, cw, CellH), "잡힌 경기장 공연", booked + "회");
+            Cell(new Rect((cw + gap) * 2f, y, cw, CellH), "지난 경기장 공연", Rental.LogSnapshot().Length + "회");
+            y += CellH + gap;
             if (venues.Count == 0) return y + Note(y, w, "공연장", "Match Day 경기장이나 대학 경기장을 지으면 공연장으로 빌릴 수 있어요");
             float hw = (w - gap) * 0.5f;
             for (int i = 0; i < venues.Count; i += 2)
@@ -65,6 +66,46 @@ namespace ConcertMod.UI
             }
             Legend(y, w);
             return y + D.LineSub;
+        }
+
+        /// <summary>
+        /// 기본 공연장 판(캔버스 VenueDefault): 페스티벌 구역이 없을 때 다음 공연 · 예매 · 의향서가 가는 경기장 —
+        /// 둥근 아이콘 · 이름 + '기본 공연장' · 설명 두 줄 · 오른쪽 세 칸(다음 공연 · 예매 · 의향서).
+        /// </summary>
+        float DefaultVenue(float w)
+        {
+            float ic = Button.H + D.Gap * 2f, cellW = S.CodeW * 4f, lines = D.LineBody + D.Gap + D.LineSub * 2f + D.Gap;
+            float h = S.Pad * 2f + Mathf.Max(ic, Mathf.Max(lines, CellH));
+            var r = new Rect(0f, 0f, w, h);
+            S.Frame(r);
+            float x = r.x + S.Pad * 1.5f, cy = r.center.y;
+            if (Draw.Repaint)
+            {
+                Draw.Round(new Rect(x, cy - ic * 0.5f, ic, ic), Draw.Alpha(Pal.Primary, 0.18f), ic * 0.5f);
+                Draw.Icon("M3 10c0-2.8 4-5 9-5s9 2.2 9 5-4 5-9 5-9-2.2-9-5zM3 10v5c0 2.8 4 5 9 5s9-2.2 9-5v-5M9 9.5h6", new Rect(x + (ic - Button.Icon) * 0.5f, cy - Button.Icon * 0.5f, Button.Icon, Button.Icon), Pal.Primary);
+            }
+            x += ic + S.Pad;
+            // 오른쪽 세 칸
+            var next = Shows.Next.Count > 0 ? Shows.Next[0] : (NextShow?)null;
+            var sale = Tickets.Current;
+            string[,] route =
+            {
+                { "다음 공연", next.HasValue ? $"{next.Value.Band.Name} · {Day(next.Value.Start)}" : "빈 날이 나면 잡아요" },
+                { "예매", sale == null ? "공연이 잡히면 열려요" : sale.Opened ? "예매 중" : $"{Day(sale.Open)} {sale.Open:HH:mm} 오픈" },
+                { "의향서", "승인하면 빈 날에" },
+            };
+            float cx = r.xMax - S.Pad * 1.5f - cellW * 3f - D.Gap * 4f;
+            for (int i = 0; i < 3; i++) Cell(new Rect(cx + (cellW + D.Gap * 2f) * i, cy - CellH * 0.5f, cellW, CellH), route[i, 0], route[i, 1]);
+            // 이름 · 표시 · 설명
+            float tw = cx - S.Pad - x, ty = cy - lines * 0.5f;
+            string name = Shows.VenueName.Length > 0 ? Shows.VenueName : "경기장";
+            float nw = Mathf.Min(tw - Badge.Pair(0f, 0f, "기본 공연장", Pal.Primary, Pal.OnPrimary, false) - D.Gap * 2f, Mathf.Ceil(Draw.TextWidth(name, D.FontBody, true)));
+            Draw.TextFit(new Rect(x, ty, nw, D.LineBody), name, D.FontBody, Pal.Txt, true);
+            Badge.Pair(x + nw + D.Gap * 2f, ty + D.LineBody * 0.5f, "기본 공연장", Pal.Primary, Draw.On(Pal.Primary));
+            ty += D.LineBody + D.Gap;
+            Draw.TextFit(new Rect(x, ty, tw, D.LineSub), "페스티벌 구역이 없어 다음 공연 · 예매 · 의향서가 이 경기장으로 가요 · 경기 사이 빈 날에 잡아요", D.FontMin, S.SubInk);
+            Draw.TextFit(new Rect(x, ty + D.LineSub, tw, D.LineSub), "페스티벌 구역을 지으면 기본 공연장은 페스티벌 구역으로 돌아가요", D.FontMin, Pal.Dim);
+            return h;
         }
 
         void Legend(float y, float w)
@@ -163,12 +204,26 @@ namespace ConcertMod.UI
                 days.Add(new KeyValuePair<DateTime, bool>(future[i].m_startTime, show));
                 if (!show && nextMatch == null) nextMatch = future[i].m_startTime;
             }
-            Draw.TextFit(new Rect(body.x, y, body.width, S.RowH), nextMatch != null ? "다음 경기 " + When(nextMatch.Value) : "잡힌 경기가 없어요", D.FontBody, Pal.Txt, true);
             bool on = Rental.IsRented(b);
             var sw = new Rect(body.xMax - D.SwitchW, y + (S.RowH - D.SwitchH) * 0.5f, D.SwitchW, D.SwitchH);
             float lw = Mathf.Ceil(Draw.TextWidth("빌리기", D.FontDesc, false));
-            Draw.TextFit(new Rect(sw.x - D.Gap * 2f - lw, y, lw, S.RowH), "빌리기", D.FontDesc, S.SubInk);
+            float lx = sw.x - D.Gap * 2f - lw;
+            Draw.TextFit(new Rect(lx, y, lw, S.RowH), "빌리기", D.FontDesc, S.SubInk);
             if (Switch.In(sw, on)) Rental.SetRented(b, !on);
+            // 페스티벌 구역이 없을 때: 기본 공연장 표시 · 빌린 다른 경기장엔 '기본으로'
+            if (Shows.Festival == 0 && b == Shows.Venue)
+            {
+                float bw = Badge.Pair(0f, 0f, "기본 공연장", Pal.Primary, Pal.OnPrimary, false);
+                lx -= D.Gap * 3f + bw;
+                Badge.Pair(lx, y + S.RowH * 0.5f, "기본 공연장", Pal.Primary, Draw.On(Pal.Primary));
+            }
+            else if (Shows.Festival == 0 && on)
+            {
+                float bw = Button.At(0f, 0f, null, "기본으로", null, Tone.Neutral, draw: false, small: true);
+                lx -= D.Gap * 3f + bw;
+                Button.At(lx, y + S.RowH * 0.5f, null, "기본으로", "다음 공연 · 예매 · 의향서를 이 경기장으로 보내요", Tone.Neutral, small: true, click: () => Rental.SetDefault(b));
+            }
+            Draw.TextFit(new Rect(body.x, y, lx - D.Gap * 2f - body.x, S.RowH), nextMatch != null ? "다음 경기 " + When(nextMatch.Value) : "잡힌 경기가 없어요", D.FontBody, Pal.Txt, true);
             y += S.RowH + D.Gap * 3f;
 
             // 30일 띠: 경기 날 · 공연 날 · 빈 날
