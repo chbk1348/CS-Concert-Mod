@@ -106,7 +106,7 @@ namespace ConcertMod.UI
         static string HeadSub()
         {
             if (!Shows.HasDlc) return "콘서트 DLC가 없어요";
-            string place = Shows.Festival != 0 ? Shows.FestivalName : "페스티벌 구역이 없어요";
+            string place = Shows.Venue == 0 ? "공연장이 없어요" : Shows.VenueName + (Shows.StadiumVenue ? " (기본 공연장)" : "");
             return $"{place} · 밴드 {Shows.Bands.Count} · 기록한 공연 {History.All.Count}";
         }
 

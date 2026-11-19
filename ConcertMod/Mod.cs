@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.2.4";
+        public const string Version = "0.2.5";
 
         public override string BaseName => "콘서트 Extension";
 
@@ -27,6 +27,9 @@ namespace ConcertMod
         static readonly CSCommonRelease[] Changelog =
         {
             new(Version, "2026-11-18",
+                "[신규] 기본 공연장: 페스티벌 구역이 없어도 빌린 경기장 하나를 기본 공연장으로 정해 다음 공연 · 예매 · 의향서가 그 경기장으로 가요 · 공연장 카드의 '기본으로'로 바꿔요 · 예약한 밴드 · 기간 · 시각은 경기 사이 빈 날마다 회차를 넣어요",
+                "[개선] 페스티벌 구역 · 빌린 경기장이 없으면 지어진 경기장(Match Day · 대학)을 자동으로 빌려 기본 공연장으로 써요 · 페스티벌 구역 없이도 의향서 · 예약 · 예매 · 일정을 다 써요 · 빌리기를 끄면 그 세이브에선 다시 자동으로 빌리지 않아요"),
+            new("0.2.4", "2026-11-18",
                 "[신규] 페스티벌 구역을 지으면 바로 3단계로 올라가요(해금 조건 · 업그레이드 비용 없이)"),
             new("0.2.3", "2026-11-18",
                 "[변경] 모드 이름을 '콘서트 Extension' 로 바꿨어요"),

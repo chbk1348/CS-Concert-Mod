@@ -34,7 +34,10 @@ namespace ConcertMod.Data
     internal static class Rental
     {
         public const string SaveKey = "ConcertMod.Rental";
-        const int Format = 1, KeepLog = 12;
+        const int Format = 3, KeepLog = 12;
+
+        /// <summary>시장이 고른 기본 공연장(페스티벌 구역이 없을 때 · 빌린 경기장 중 하나). 빌리지 않았으면 빌린 첫 경기장.</summary>
+        static ushort preferred;
 
         /// <summary>공연이 끝나고 다음 경기 준비까지 남길 여유(게임 시간).</summary>
         const float MarginHours = 2f;
@@ -63,6 +66,9 @@ namespace ConcertMod.Data
         /// <summary>페스티벌 다음 공연 밴드(본 스레드가 적고 시뮬레이션 스레드가 읽음).</summary>
         static volatile string festivalNext;
 
+        /// <summary>이 세이브에서 경기장 자동 대관을 이미 했나(세이브에 남음 — 시장이 끈 뒤 다시 빌리지 않게).</summary>
+        static volatile bool autoRented;
+
         public static void Tick()
         {
             festivalNext = Shows.Next.Count > 0 ? Shows.Next[0].Band.Key : null;
@@ -71,10 +77,30 @@ namespace ConcertMod.Data
             for (int i = 1; i < buf.Length; i++)
                 if ((buf[i].m_flags & (Building.Flags.Created | Building.Flags.Deleted)) == Building.Flags.Created && buf[i].m_parentBuilding == 0 && IsStadium(buf[i].Info))
                     Venues.Add((ushort)i);
+            // 페스티벌 구역 · 빌린 경기장이 없으면 첫 경기장을 자동으로 빌려 기본 공연장으로(세이브마다 한 번 — 시장이 끄면 그대로 둠)
+            if (!autoRented && Shows.Festival == 0 && Venues.Count > 0 && Default() == 0)
+            {
+                autoRented = true;
+                SetRented(Venues[0], true);
+            }
             if (Rented.Count > 0) SimulationManager.instance.AddAction(Step);
         }
 
         public static bool IsRented(ushort b) { lock (gate) return Rented.Contains(b); }
+
+        /// <summary>페스티벌 구역이 없을 때 다음 공연 · 예매 · 의향서가 가는 경기장(고른 곳 → 빌린 첫 곳 → 없으면 0).</summary>
+        public static ushort Default()
+        {
+            lock (gate) return Rented.Contains(preferred) ? preferred : Rented.Count > 0 ? Rented[0] : (ushort)0;
+        }
+
+        public static void SetDefault(ushort b) => SimulationManager.instance.AddAction(() => { lock (gate) preferred = b; });
+
+        /// <summary>아직 만들지 않은 넣기(자리 잡는 중)를 거둠 — 예약 계획을 새로 잡을 때(시뮬레이션 스레드).</summary>
+        public static void DropPlanned(ushort b)
+        {
+            lock (gate) Active.RemoveAll(r => r.Stadium == b && r.State == 0);
+        }
 
         /// <summary>화면용 지난 경기장 공연 사본(시뮬레이션 스레드가 바꾸는 중에도 안전).</summary>
         public static RentLog[] LogSnapshot() { lock (gate) return Log.ToArray(); }
@@ -92,7 +118,12 @@ namespace ConcertMod.Data
             {
                 Rented.Remove(b);
                 if (on) Rented.Add(b);
-                else Active.RemoveAll(r => r.Stadium == b && r.State == 0);
+                else
+                {
+                    Active.RemoveAll(r => r.Stadium == b && r.State == 0);
+                    // 이 경기장에 잡은 예약 계획은 더 넣을 곳이 없어 지움(의향서가 다음 계획을 잡게)
+                    if (Booking.Current is Plan p && p.Stadium && p.Building == b) Booking.Current = null;
+                }
             }
         });
 
@@ -132,9 +163,12 @@ namespace ConcertMod.Data
                     ref var match = ref em.m_events.m_buffer[head];
                     if (match.m_flags != EventData.Flags.Created) { waitWhy[s] = "경기 중이에요 · 끝나고 다음 경기 앞 틈을 봐요"; continue; }
                     if (match.Info?.m_eventAI is not SportMatchAI mai) continue;
-                    var band = PickBand();
+                    // 기본 공연장에 잡은 예약 계획이면 그 밴드 · 시각(회차마다 다음 빈 틈에 하나씩)
+                    var plan = Booking.Current;
+                    bool planned = plan != null && plan.Stadium && plan.Building == s && plan.Done < plan.Days;
+                    var band = planned ? Shows.BandOf(plan.Band) : PickBand();
                     if (band?.Info?.m_eventAI is not ConcertAI cai) { waitWhy[s] = "공연할 밴드가 없어요"; continue; }
-                    uint start = Booking.AtHour(now + Frames(cai.m_prepareDuration), Mathf.RoundToInt(cai.m_startTime));
+                    uint start = Booking.AtHour(now + Frames(cai.m_prepareDuration), planned ? plan.Hour : Mathf.RoundToInt(cai.m_startTime));
                     uint end = start + Frames(cai.m_eventDuration + cai.m_disorganizeDuration);
                     if (end + Frames(MarginHours) > match.m_startFrame - Frames(mai.m_prepareDuration))
                     {
@@ -191,6 +225,7 @@ namespace ConcertMod.Data
                 data.m_expireFrame = r.End;
                 r.Event = eventId;
                 r.State = 1;
+                Booking.OnStadiumShow(r.Stadium, r.Band, r.Start);
             }
         }
 
@@ -222,8 +257,10 @@ namespace ConcertMod.Data
                 Rented.Clear();
                 Active.Clear();
                 Log.Clear();
+                preferred = 0;
             }
             Venues.Clear();
+            autoRented = false;
         }
 
         public static byte[] Write()
@@ -254,6 +291,8 @@ namespace ConcertMod.Data
                     w.Write(l.Band ?? "");
                     w.Write(l.Start);
                 }
+                w.Write(preferred);
+                w.Write(autoRented);
             }
             w.Flush();
             return ms.ToArray();
@@ -274,6 +313,8 @@ namespace ConcertMod.Data
                     Active.Add(new Rent { Stadium = r.ReadUInt16(), Band = r.ReadString(), Start = r.ReadUInt32(), End = r.ReadUInt32(), Event = r.ReadUInt16(), AnchorPrev = r.ReadUInt16(), AnchorExpire = r.ReadUInt32(), State = r.ReadByte() });
                 n = r.ReadInt32();
                 for (int i = 0; i < n; i++) Log.Add(new RentLog { Stadium = r.ReadUInt16(), Band = r.ReadString(), Start = r.ReadUInt32() });
+                if (format >= 2) preferred = r.ReadUInt16();
+                if (format >= 3) autoRented = r.ReadBoolean();
             }
         }
 
@@ -289,13 +330,15 @@ namespace ConcertMod.Data
                     Rented.Add(31);
                     Active.Add(new Rent { Stadium = 31, Band = "Band A", Start = 100, End = 200, Event = 7, AnchorPrev = 5, AnchorExpire = 90, State = 1 });
                     Log.Add(new RentLog { Stadium = 31, Band = "Band B", Start = 50 });
+                    preferred = 31;
+                    autoRented = true;
                 }
                 Read(Write());
                 lock (gate)
                 {
                     var a = Active.Count == 1 ? Active[0] : null;
                     return Rented.Count != 1 || Rented[0] != 31 || a == null || a.Band != "Band A" || a.Start != 100 || a.End != 200 || a.Event != 7 || a.AnchorPrev != 5 || a.AnchorExpire != 90 || a.State != 1
-                        || Log.Count != 1 || Log[0].Band != "Band B" || Log[0].Start != 50 ? "대관을 쓰고 읽은 값이 달라요" : null;
+                        || Log.Count != 1 || Log[0].Band != "Band B" || Log[0].Start != 50 || preferred != 31 || !autoRented ? "대관을 쓰고 읽은 값이 달라요" : null;
                 }
             }
             finally

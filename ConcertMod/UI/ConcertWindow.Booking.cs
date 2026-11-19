@@ -25,7 +25,7 @@ namespace ConcertMod.UI
 
         float BookingTab(float w)
         {
-            if (Shows.Festival == 0) return Note(0f, w, "예약", "페스티벌 구역을 지으면 다음 공연을 잡을 수 있어요");
+            if (Shows.Venue == 0) return Note(0f, w, "예약", "페스티벌 구역이나 경기장(Match Day · 대학)을 지으면 다음 공연을 잡을 수 있어요");
             var plan = Booking.Current;
             Band gameBand = null;
             foreach (var n in Shows.Next) { gameBand = n.Band; break; }
@@ -60,7 +60,7 @@ namespace ConcertMod.UI
             S.Frame(r);
             var art = new Rect(r.x, r.y, r.width, artH);
             var first = FirstStart();
-            C.Stage(art, band.Color, band.Name, Shows.FestivalName.Length > 0 ? Shows.FestivalName : "페스티벌 구역");
+            C.Stage(art, band.Color, band.Name, Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장");
             var now = SimulationManager.instance.m_currentGameTime;
             float bx = art.x + S.Pad, by = art.y + S.Pad + Badge.H * 0.5f;
             bx += Badge.Pair(bx, by, "D-" + Math.Max(0, (int)(first.Date - now.Date).TotalDays), band.Color, Draw.On(band.Color)) + D.Gap * 2f;
@@ -154,7 +154,7 @@ namespace ConcertMod.UI
                 Draw.RoundOutline(box, Pal.Line, S.Radius - S.Pad * 0.5f);
             }
             float y = box.y + S.Pad * 1.5f;
-            Draw.TextFit(new Rect(box.x, y, box.width, D.LineSub), (Shows.FestivalName.Length > 0 ? Shows.FestivalName : "페스티벌") + " 라인업", D.FontMin, Pal.Light, false, TextAnchor.MiddleCenter);
+            Draw.TextFit(new Rect(box.x, y, box.width, D.LineSub), (Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장") + " 라인업", D.FontMin, Pal.Light, false, TextAnchor.MiddleCenter);
             y += D.LineSub + S.Pad;
             if (Shows.Next.Count == 0)
             {

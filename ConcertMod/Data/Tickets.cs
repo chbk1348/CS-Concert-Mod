@@ -81,11 +81,11 @@ namespace ConcertMod.Data
         public static void Refresh()
         {
             Current = null;
-            if (Shows.Festival == 0 || Shows.Next.Count == 0) { Feed.Clear(); return; }
+            if (Shows.Venue == 0 || Shows.Next.Count == 0) { Feed.Clear(); return; }
             var n = Shows.Next[0];
             var plan = Booking.Current;
             int days = plan != null && plan.Band == n.Band.Key ? plan.Days - Math.Max(0, plan.Done - 1) : 1;
-            int cap = SessionCap(Shows.Festival) * Math.Max(1, days);
+            int cap = SessionCap(Shows.Venue) * Math.Max(1, days);
             var now = SimulationManager.instance.m_currentGameTime;
             var s = new Sale { Band = n.Band, Start = n.Start, Days = Math.Max(1, days), Open = OpenOf(n.Start), Cap = cap, Want = WantOf(n.Band.Info, cap) };
             s.Sold = SoldAt(s.Want, s.Cap, (now - s.Open).TotalHours);
@@ -155,7 +155,7 @@ namespace ConcertMod.Data
         /// <summary>시뮬레이션 스레드: 이 공연 이벤트가 받을 관객 비율(예매한 만큼, 예매를 안 쓰면 1).</summary>
         public static float FillFor(ushort eventId, ref EventData data)
         {
-            if (!ConcertSetting.Current.Ticketing || data.m_building == 0 || data.m_building != Shows.Festival) return 1f;
+            if (!ConcertSetting.Current.Ticketing || data.m_building == 0 || data.m_building != Shows.Venue) return 1f;
             var info = data.Info;
             if (info == null) return 1f;
             int cap = Math.Max(1, SessionCap(data.m_building));
