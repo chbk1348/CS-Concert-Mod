@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using ConcertMod.Core;
 using ConcertMod.UI;
 using ICities;
@@ -133,6 +133,7 @@ namespace ConcertMod
             SelfCheck("공연 예약", Data.Booking.SelfCheck);
             SelfCheck("의향서", Data.Letters.SelfCheck);
             SelfCheck("대관", Data.Rental.SelfCheck);
+            SelfCheck("출연표", Data.Lineup.SelfCheck);
             host = new GameObject("ConcertMod");
             host.AddComponent<ConcertController>();
         }
@@ -165,6 +166,7 @@ namespace ConcertMod
             Data.Letters.Clear();
             Data.Rental.Clear();
             Data.Sound.Clear();
+            Data.Lineup.Clear();
             base.OnLevelUnloading();
         }
     }

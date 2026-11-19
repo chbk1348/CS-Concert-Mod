@@ -5,7 +5,7 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>CS-Concert-Mod</AssemblyName>
     <RootNamespace>ConcertMod</RootNamespace>
-    <Version>0.2.5</Version>
+    <Version>0.3.0</Version>
     <Product>콘서트 Extension</Product>
     <Authors>chbk1348</Authors>
     <Nullable>disable</Nullable>

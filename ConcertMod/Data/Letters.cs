@@ -80,7 +80,7 @@ namespace ConcertMod.Data
                     {
                         var band = Shows.BandOf(l.Band);
                         if (band == null) { l.State = LetterState.Withdrawn; continue; }
-                        Booking.SetPrice(band.Info, l.Price);
+                        Booking.SetPrice(band, l.Price);
                         Booking.Set(l.Band, l.Days, l.Hour);
                         l.State = LetterState.Booked;
                         l.Booked = now;

@@ -138,7 +138,7 @@ namespace ConcertMod.Data
                 bool used = false;
                 foreach (var r in Active) if (r.Band == b.Key) used = true;
                 if (used) continue;
-                if (best == null || ConcertAI.GetPopularity(b.Info) > ConcertAI.GetPopularity(best.Info)) best = b;
+                if (best == null || b.Pop > best.Pop) best = b;
             }
             return best;
         }
@@ -153,7 +153,7 @@ namespace ConcertMod.Data
             {
                 Rented.RemoveAll(b => !IsStadium(bm.m_buildings.m_buffer[b].Info));
                 // 끝내 못 만든 넣기 · 다른 길로 사라진 공연(건물 철거 등)은 거둠
-                Active.RemoveAll(r => r.State == 0 ? now > r.Start : em.m_events.m_buffer[r.Event].Info?.name != r.Band || (em.m_events.m_buffer[r.Event].m_flags & EventData.Flags.Deleted) != 0);
+                Active.RemoveAll(r => r.State == 0 ? now > r.Start : em.m_events.m_buffer[r.Event].Info != Shows.BandOf(r.Band)?.Info || (em.m_events.m_buffer[r.Event].m_flags & EventData.Flags.Deleted) != 0);
                 waitWhy.Clear();
                 foreach (ushort s in Rented)
                 {
@@ -220,9 +220,10 @@ namespace ConcertMod.Data
             lock (gate)
             {
                 var r = ActiveAtLocked(data.m_building);
-                if (r == null || r.State != 0 || data.Info == null || data.Info.name != r.Band) return;
+                if (r == null || r.State != 0 || data.Info == null || data.Info != Shows.BandOf(r.Band)?.Info) return;
                 data.m_startFrame = r.Start;
                 data.m_expireFrame = r.End;
+                Lineup.Bind(eventId, r.Start, Shows.BandOf(r.Band)?.Key);
                 r.Event = eventId;
                 r.State = 1;
                 Booking.OnStadiumShow(r.Stadium, r.Band, r.Start);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using ConcertMod.Data;
 using UnityEngine;
@@ -207,11 +207,11 @@ namespace ConcertMod.UI
             Draw.TextFit(new Rect(x, y, iw, D.LineSub), $"기본 {Price(baseP)} · {est}", D.FontMin, S.SubInk);
             float by = r.yMax - S.Pad - Button.H * 0.4f;
             float bw = Button.Width(null, "−", true);
-            Button.At(x, by, null, "−", "내리기", Tone.Neutral, enabled: b.Price - PriceStep >= baseP * PriceMin, click: () => Booking.SetPrice(b.Info, b.Price - PriceStep), small: true);
+            Button.At(x, by, null, "−", "내리기", Tone.Neutral, enabled: b.Price - PriceStep >= baseP * PriceMin, click: () => Booking.SetPrice(b, b.Price - PriceStep), small: true);
             string price = Price(b.Price);
             float pw = Mathf.Ceil(Draw.TextWidth(price, D.FontValue + D.Gap, true));
             Draw.TextFit(new Rect(x + bw + D.Gap * 2f, by - D.LineBody * 0.6f, pw, D.LineBody * 1.2f), price, D.FontValue + D.Gap, Pal.Txt, true, TextAnchor.MiddleCenter);
-            Button.At(x + bw + pw + D.Gap * 4f, by, null, "+", "올리기", Tone.Neutral, enabled: b.Price + PriceStep <= baseP * PriceMax, click: () => Booking.SetPrice(b.Info, b.Price + PriceStep), small: true);
+            Button.At(x + bw + pw + D.Gap * 4f, by, null, "+", "올리기", Tone.Neutral, enabled: b.Price + PriceStep <= baseP * PriceMax, click: () => Booking.SetPrice(b, b.Price + PriceStep), small: true);
             var stub = new Rect(r.xMax - C.StubW * 0.75f, r.y, C.StubW * 0.75f, r.height);
             Draw.TextFit(new Rect(stub.x, stub.center.y - D.LineSub - D.Gap, stub.width, D.LineSub), "기본 대비", D.FontMin, S.SubInk, false, TextAnchor.MiddleCenter);
             Draw.TextFit(new Rect(stub.x, stub.center.y, stub.width, D.LineBody), (pct > 0 ? "+" : "") + pct + "%", D.FontValue, pct == 0 ? Pal.Light : Look.PastelInk, true, TextAnchor.MiddleCenter);

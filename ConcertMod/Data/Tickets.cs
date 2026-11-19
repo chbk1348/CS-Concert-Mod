@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using ColossalFramework;
 using ColossalFramework.Math;
@@ -64,11 +64,11 @@ namespace ConcertMod.Data
         }
 
         /// <summary>원하는 사람: 정원 × (0.5 + 인기 비율 × 1.8) × 입장권(기본보다 비싸면 줄고 싸면 늚).</summary>
-        static int WantOf(EventInfo info, int cap)
+        static int WantOf(Band band, int cap)
         {
-            var ai = info.m_eventAI;
-            int pop = ConcertAI.GetPopularity(info);
-            float price = ai.m_ticketPrice + info.m_ticketPriceOffset, rel = ai.m_ticketPrice > 0 ? price / ai.m_ticketPrice : 1f;
+            var ai = band.Info.m_eventAI;
+            int pop = band.Pop;
+            float price = band.Price, rel = ai.m_ticketPrice > 0 ? price / ai.m_ticketPrice : 1f;
             float priceF = Mathf.Clamp(1f - (rel - 1f) * 1.2f, 0.4f, 1.6f);
             return Mathf.RoundToInt(cap * (0.5f + pop / 100f * 1.8f) * priceF);
         }
@@ -87,7 +87,7 @@ namespace ConcertMod.Data
             int days = plan != null && plan.Band == n.Band.Key ? plan.Days - Math.Max(0, plan.Done - 1) : 1;
             int cap = SessionCap(Shows.Venue) * Math.Max(1, days);
             var now = SimulationManager.instance.m_currentGameTime;
-            var s = new Sale { Band = n.Band, Start = n.Start, Days = Math.Max(1, days), Open = OpenOf(n.Start), Cap = cap, Want = WantOf(n.Band.Info, cap) };
+            var s = new Sale { Band = n.Band, Start = n.Start, Days = Math.Max(1, days), Open = OpenOf(n.Start), Cap = cap, Want = WantOf(n.Band, cap) };
             s.Sold = SoldAt(s.Want, s.Cap, (now - s.Open).TotalHours);
             s.Site = Letters.ExclusiveSite(n.Band.Key);
             s.Poster = (int)((uint)(n.Band.Key.GetHashCode() ^ n.Start.Date.GetHashCode()) % 10u);
@@ -156,10 +156,10 @@ namespace ConcertMod.Data
         public static float FillFor(ushort eventId, ref EventData data)
         {
             if (!ConcertSetting.Current.Ticketing || data.m_building == 0 || data.m_building != Shows.Venue) return 1f;
-            var info = data.Info;
-            if (info == null) return 1f;
+            var band = Shows.BandOf(eventId, ref data);
+            if (band == null) return 1f;
             int cap = Math.Max(1, SessionCap(data.m_building));
-            int want = WantOf(info, cap);
+            int want = WantOf(band, cap);
             var start = data.StartTime;
             return Mathf.Clamp01((float)SoldAt(want, cap, (start - OpenOf(start)).TotalHours) / cap);
         }
