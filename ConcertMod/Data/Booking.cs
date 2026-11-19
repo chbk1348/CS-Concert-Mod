@@ -87,6 +87,7 @@ namespace ConcertMod.Data
             data.m_expireFrame = last ? ai.CalculateExpireFrame(start) : start + (uint)Mathf.RoundToInt((ai.m_eventDuration + ai.m_disorganizeDuration) * HourFrames);
             p.LastStart = start;
             p.Done++;
+            Lineup.Bind(eventId, start, Shows.BandOf(p.Band)?.Key);
             Core.Log.Detail($"공연 예약: {Artists.Of(p.Band)} {p.Done}/{p.Days}회차 · 이벤트 {eventId} · {Singleton<SimulationManager>.instance.FrameToTime(start):MM-dd HH:mm}");
             if (p.Done >= p.Days)
             {
@@ -150,8 +151,8 @@ namespace ConcertMod.Data
         /// <summary>계획 지우기(게임이 고른 밴드로). 이미 만들어진 준비 전 공연은 그대로.</summary>
         public static void Clear() => SimulationManager.instance.AddAction(() => Current = null);
 
-        /// <summary>밴드 입장권(그 밴드의 모든 공연에 적용, 게임 세이브에 남음).</summary>
-        public static void SetPrice(EventInfo band, int price) => SimulationManager.instance.AddAction(() => band.m_ticketPriceOffset = price - band.m_eventAI.m_ticketPrice);
+        /// <summary>아티스트 입장권(그 아티스트의 모든 공연에 적용, 출연표 세이브에 남음).</summary>
+        public static void SetPrice(Band band, int price) => Lineup.SetPrice(band.Key, price - band.Info.m_eventAI.m_ticketPrice);
 
         public static byte[] Write()
         {
@@ -238,6 +239,7 @@ namespace ConcertMod.Data
             {
                 Rental.OnConcertCreate(eventID, ref data);
                 Booking.OnCreate(eventID, ref data);
+                Lineup.OnCreate(eventID, ref data); // 예약 · 대관이 아티스트를 안 붙인 공연은 그 자리 차례 아티스트
             }
             catch (Exception e)
             {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using ColossalFramework;
 using ConcertMod.Core;
@@ -62,44 +62,65 @@ namespace ConcertMod.Data
 
         public static bool HasDlc => SteamHelper.IsDLCOwned(SteamHelper.DLC.MusicFestival);
 
-        public static Band BandOf(EventInfo info) => info != null && byKey.TryGetValue(info.name, out var b) ? b : null;
+        /// <summary>아티스트 이름(옛 세이브의 밴드 프리팹 이름도 그때 붙던 아티스트로) → 밴드.</summary>
+        public static Band BandOf(string key) => key != null && byKey.TryGetValue(Artists.Of(key), out var b) ? b : null;
 
-        public static Band BandOf(string key) => key != null && byKey.TryGetValue(key, out var b) ? b : null;
+        /// <summary>공연 이벤트의 아티스트(출연표 · 출연표 전 공연은 그 프리팹에 붙던 아티스트).</summary>
+        public static Band BandOf(ushort id, ref EventData d) => BandOf(Lineup.ArtistOf(id, d.m_startFrame) ?? d.Info?.name);
 
-        /// <summary>밴드 목록(도시를 불러올 때 한 번 · 아티스트 이름표도 다시).</summary>
+        /// <summary>아직 안 만든 다음 공연(게임이 고른 자리 프리팹)의 아티스트: 예약 계획이 그 자리면 계획 아티스트, 아니면 그 자리 차례.</summary>
+        static Band Predict(EventInfo slot)
+        {
+            var p = Booking.Current;
+            var planned = p != null && !p.Stadium && p.Done < p.Days ? BandOf(p.Band) : null;
+            return planned != null && planned.Info == slot ? planned : Lineup.Pick(slot);
+        }
+
+        /// <summary>밴드 목록(도시를 불러올 때 한 번): 게임 밴드 프리팹은 공연 자리, 무대에 오르는 건 아티스트 Lineup.Count 팀.</summary>
         public static void LoadBands()
         {
             Bands.Clear();
             byKey.Clear();
-            var keys = new List<string>();
+            var slots = new List<EventInfo>();
             for (uint i = 0; i < PrefabCollection<EventInfo>.LoadedCount(); i++)
             {
                 var info = PrefabCollection<EventInfo>.GetLoaded(i);
-                if (info?.m_eventAI is ConcertAI) keys.Add(info.name);
+                if (info?.m_eventAI is ConcertAI) slots.Add(info);
             }
-            Artists.Assign(keys);
-            for (uint i = 0; i < PrefabCollection<EventInfo>.LoadedCount(); i++)
+            slots.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+            var keys = new List<string>();
+            foreach (var s in slots) keys.Add(s.name);
+            Artists.Assign(keys); // 옛 세이브: 프리팹 이름 → 그때 붙던 아티스트
+            History.Rekey();
+            lock (Letters.All) foreach (var l in Letters.All) l.Band = Artists.Of(l.Band);
+            if (Booking.Current is Plan p) p.Band = Artists.Of(p.Band);
+            if (slots.Count == 0) return;
+            int n = Math.Min(Lineup.Count, Artists.Names.Length);
+            for (int i = 0; i < n; i++)
             {
-                var info = PrefabCollection<EventInfo>.GetLoaded(i);
-                if (!(info?.m_eventAI is ConcertAI ai)) continue;
-                var b = new Band { Info = info, Key = info.name, Name = Artists.Of(info.name), Color = ai.m_defaultBandColor };
+                var slot = slots[i % slots.Count];
+                var b = new Band { Info = slot, Key = Artists.Names[i], Name = Artists.Names[i], Color = ((ConcertAI)slot.m_eventAI).m_defaultBandColor };
                 Bands.Add(b);
                 byKey[b.Key] = b;
+                // 출연표 없는 세이브: 앞 팀들은 그때 쓰던 밴드 프리팹 인기 · 입장권을 넘겨받음
+                if (!Lineup.Loaded && i < slots.Count) Lineup.Seed(b.Key, slot.m_popularityOffset, slot.m_ticketPriceOffset);
             }
+            Lineup.MarkLoaded();
         }
 
         public static void Refresh()
         {
             foreach (var b in Bands)
             {
-                b.Pop = ConcertAI.GetPopularity(b.Info);
-                b.Price = b.Info.m_eventAI.m_ticketPrice + b.Info.m_ticketPriceOffset;
+                b.Pop = Lineup.Pop(b.Key);
+                b.Price = b.Info.m_eventAI.m_ticketPrice + Lineup.PriceOffset(b.Key);
             }
             Festival = FindFestival();
             AutoLevel3();
             Venue = Festival != 0 ? Festival : Rental.Default();
             VenueName = Venue != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(Venue, InstanceID.Empty) ?? "" : "";
             ReadEvents();
+            Lineup.Sync();
             Next.Clear();
             // 이미 만들어진(아직 준비 전) 공연이 먼저, 그 뒤 게임이 정할 칸
             foreach (var s in All)
@@ -112,7 +133,7 @@ namespace ConcertMod.Data
                 int n = Singleton<EventManager>.instance.GetFutureEvents(Festival, future, future.Length - Next.Count);
                 for (int i = 0; i < n; i++)
                 {
-                    var b = BandOf(future[i].m_info);
+                    var b = Predict(future[i].m_info);
                     if (b != null) Next.Add(new NextShow { Band = b, Start = future[i].m_startTime });
                 }
             }
@@ -172,8 +193,8 @@ namespace ConcertMod.Data
                     Id = id,
                     Building = d.m_building,
                     StartFrame = d.m_startFrame,
-                    Band = BandOf(info),
-                    Color = ai.m_defaultBandColor, // m_color 는 페스티벌 테마 색이라 밴드 색은 AI 값
+                    Band = BandOf(id, ref d),
+                    Color = ai.m_defaultBandColor, // m_color 는 페스티벌 테마 색이라 밴드 색은 AI 값(아티스트는 자리 프리팹 색)
                     Start = d.StartTime,
                     End = sim.FrameToTime(d.m_expireFrame),
                     Venue = d.m_building != 0 ? bm.GetBuildingName(d.m_building, InstanceID.Empty) ?? "" : "",

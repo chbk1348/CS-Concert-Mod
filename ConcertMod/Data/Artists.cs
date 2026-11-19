@@ -1,10 +1,10 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace ConcertMod.Data
 {
     /// <summary>
-    /// 게임 밴드(콘서트 DLC EventInfo)에 붙이는 아티스트 이름 40팀(캔버스 아티스트 명단). 밴드 프리팹 이름 순서대로 차례로 붙여 언제나 같은 이름.
-    /// 밴드 색 · 인기 · 공연은 게임 값 그대로, 이름만 바꿔 보여 줌.
+    /// 아티스트 명단 40팀(캔버스 아티스트 명단). 무대에 오르는 건 앞에서부터 Lineup.Count 팀(Lineup 이 공연마다 붙임).
+    /// Assign · Of 의 프리팹 → 이름표는 옛 세이브(0.2.x: 밴드 프리팹마다 이름 하나)를 읽을 때만 씀.
     /// </summary>
     internal static class Artists
     {
@@ -25,7 +25,7 @@ namespace ConcertMod.Data
             for (int i = 0; i < keys.Count; i++) byKey[keys[i]] = Names[i % Names.Length];
         }
 
-        /// <summary>밴드 프리팹 이름 → 아티스트 이름(모르면 프리팹 이름).</summary>
+        /// <summary>옛 밴드 프리팹 이름 → 그때 붙던 아티스트 이름(아티스트 이름 · 모르는 이름은 그대로).</summary>
         public static string Of(string key) => key != null && byKey.TryGetValue(key, out var n) ? n : key ?? "";
 
         /// <summary>이름 머리글자(앨범 칸): 공백으로 나뉘면 첫 글자들, 아니면 앞 3자.</summary>

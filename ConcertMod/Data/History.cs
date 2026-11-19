@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using ICities;
@@ -50,6 +50,12 @@ namespace ConcertMod.Data
                     CSCommonUX.Toast.Show($"{s.Band.Name} 공연이 끝났어요 · 관객 {(peak.TryGetValue(s.Id, out int pv) ? pv : s.Arrived):#,0}명 · 입장권 ₡{s.Ticket / 100.0:#,0} · {(s.Success ? "성공" : "아쉬움")}",
                         s.Success ? CSCommonUX.ToastKind.Success : CSCommonUX.ToastKind.Info);
                 seen.Add(s.StartFrame);
+                // 인기 변화는 아티스트에(불러온 뒤 첫 Track 의 이미 끝난 공연은 그 전에 더해졌으므로 뺌)
+                if (primed)
+                {
+                    Lineup.Finish(s.Band.Key, s.PopDelta);
+                    s.Band.Pop = Lineup.Pop(s.Band.Key);
+                }
                 var r = new Record
                 {
                     Frame = s.StartFrame,
@@ -77,6 +83,18 @@ namespace ConcertMod.Data
 
         /// <summary>설정 '공연 기록 지우기': 세이브에 남긴 지난 공연을 모두(이미 끝난 공연을 다시 적지 않게 본 표시는 둠).</summary>
         public static void Forget() => All.Clear();
+
+        /// <summary>옛 세이브: 밴드 프리팹 이름으로 남은 기록을 그때 붙던 아티스트 이름으로(LoadBands 에서 Artists.Assign 뒤).</summary>
+        public static void Rekey()
+        {
+            foreach (var r in All)
+            {
+                r.Key = Artists.Of(r.Key);
+                var pops = new Dictionary<string, int>();
+                foreach (var kv in r.Pops) pops[Artists.Of(kv.Key)] = kv.Value;
+                r.Pops = pops;
+            }
+        }
 
         public static void Clear()
         {

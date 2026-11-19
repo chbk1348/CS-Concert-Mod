@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.2.5";
+        public const string Version = "0.3.0";
 
         public override string BaseName => "콘서트 Extension";
 
@@ -26,7 +26,11 @@ namespace ConcertMod
 
         static readonly CSCommonRelease[] Changelog =
         {
-            new(Version, "2026-11-18",
+            new(Version, "2026-11-19",
+                "[신규] 아티스트 무대: 게임 기본 밴드 3팀 대신 모드 아티스트가 공연해요 · 지금은 한국 대표 5팀(BTS · BLACKPINK · NewJeans · TWICE · SEVENTEEN) · 공연마다 차례로 나가고 인기 · 입장권은 아티스트마다 따로예요 · 게임 정보 창 밴드 이름도 아티스트로",
+                "[변경] 옛 세이브의 밴드 인기 · 입장권 · 공연 기록 · 의향서 · 예약은 그때 보이던 아티스트로 넘겨받아요",
+                "[신규] 아티스트 음악: 모드 폴더 Music/<아티스트 이름>/ 에 .ogg · .wav 곡을 넣으면 그 아티스트 공연 중에 공연장에서 차례로 틀어요 · 가까이 갈수록 크게 들려요 · 설정 '공연 중 공연 소리'를 끄면 멈춰요"),
+            new("0.2.5", "2026-11-18",
                 "[신규] 기본 공연장: 페스티벌 구역이 없어도 빌린 경기장 하나를 기본 공연장으로 정해 다음 공연 · 예매 · 의향서가 그 경기장으로 가요 · 공연장 카드의 '기본으로'로 바꿔요 · 예약한 밴드 · 기간 · 시각은 경기 사이 빈 날마다 회차를 넣어요",
                 "[개선] 페스티벌 구역 · 빌린 경기장이 없으면 지어진 경기장(Match Day · 대학)을 자동으로 빌려 기본 공연장으로 써요 · 페스티벌 구역 없이도 의향서 · 예약 · 예매 · 일정을 다 써요 · 빌리기를 끄면 그 세이브에선 다시 자동으로 빌리지 않아요"),
             new("0.2.4", "2026-11-18",
