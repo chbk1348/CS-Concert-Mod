@@ -5,3 +5,14 @@ Obj/
 
 # Docs 폴더는 깃에 올리지 않음
 Docs/
+
+# 음원 파일은 깃에 올리지 않음(저작권 · 시장이 모드 폴더 Music/ 에 직접 넣음)
+Music/
+*.ogg
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.opus
+*.webm
+*.aac
