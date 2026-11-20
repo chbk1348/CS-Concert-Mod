@@ -141,7 +141,7 @@ namespace ConcertMod.UI
                 pickDays = Booking.MinDays;
             });
             if (plan != null)
-                Draw.TextFit(new Rect(x, y, iw - okW - resetW - S.Pad, Button.H), $"잡힘 · {Artists.Of(plan.Band)} {plan.Days}일 · {plan.Hour:00}:00 · {plan.Done}/{plan.Days}회차 만들어짐", D.FontMin, Look.PastelInk, true);
+                Draw.TextFit(new Rect(x, y, iw - okW - resetW - S.Pad, Button.H), $"잡힘 · {Artists.Of(plan.Band)} {plan.Days}일 · {plan.Hour:00}:00 · {plan.Done}/{plan.Days}회차 만들어짐", D.FontMin, Look.PastelSubInk, true);
         }
 
         void LineupPlate(Rect r, Plan plan)
@@ -214,7 +214,7 @@ namespace ConcertMod.UI
             Button.At(x + bw + pw + D.Gap * 4f, by, null, "+", "올리기", Tone.Neutral, enabled: b.Price + PriceStep <= baseP * PriceMax, click: () => Booking.SetPrice(b, b.Price + PriceStep), small: true);
             var stub = new Rect(r.xMax - C.StubW * 0.75f, r.y, C.StubW * 0.75f, r.height);
             Draw.TextFit(new Rect(stub.x, stub.center.y - D.LineSub - D.Gap, stub.width, D.LineSub), "기본 대비", D.FontMin, S.SubInk, false, TextAnchor.MiddleCenter);
-            Draw.TextFit(new Rect(stub.x, stub.center.y, stub.width, D.LineBody), (pct > 0 ? "+" : "") + pct + "%", D.FontValue, pct == 0 ? Pal.Light : Look.PastelInk, true, TextAnchor.MiddleCenter);
+            Draw.TextFit(new Rect(stub.x, stub.center.y, stub.width, D.LineBody), (pct > 0 ? "+" : "") + pct + "%", D.FontValue, pct == 0 ? Pal.Light : Look.PastelSubInk, true, TextAnchor.MiddleCenter);
         }
     }
 }

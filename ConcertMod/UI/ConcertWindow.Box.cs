@@ -137,7 +137,7 @@ namespace ConcertMod.UI
                 if (pro[m] > 0 && Draw.Repaint) Draw.Round(new Rect(cx - barW * 0.5f, plot.yMax - plot.height * pro[m] / top, barW, plot.height * pro[m] / top), cur ? Pal.ConcertUp : Draw.Alpha(Pal.ConcertUp, 0.3f), Board.BoxRadius * 0.5f);
                 pts.Add(new Vector2(cx, plot.yMax - plot.height * rev[m] / top));
                 var mon = start.AddMonths(m);
-                Draw.TextFit(new Rect(cx - step * 0.5f, plot.yMax + D.Gap * 2f, step, D.LineSub), mon.Month + "월", D.FontMin, cur ? Look.PastelInk : S.SubInk, cur, TextAnchor.MiddleCenter);
+                Draw.TextFit(new Rect(cx - step * 0.5f, plot.yMax + D.Gap * 2f, step, D.LineSub), mon.Month + "월", D.FontMin, cur ? Look.PastelSubInk : S.SubInk, cur, TextAnchor.MiddleCenter);
             }
             if (Draw.Repaint)
             {

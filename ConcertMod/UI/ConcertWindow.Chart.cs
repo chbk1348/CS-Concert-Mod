@@ -206,7 +206,7 @@ namespace ConcertMod.UI
                 float x = row.x + D.Gap * 2f;
                 Draw.TextFit(new Rect(x, row.y, numW * 0.6f, row.height), k.Pos.ToString(), C.RankFont, i == 0 ? k.Band.Color : Pal.Txt, true, TextAnchor.MiddleCenter);
                 string mv = k.New ? "NEW" : k.Move > 0 ? "▲" + k.Move : k.Move < 0 ? "▼" + (-k.Move) : "–";
-                Draw.TextFit(new Rect(x + numW * 0.6f, row.y, numW * 0.5f, row.height), mv, D.FontMin, k.New ? Look.PastelInk : DeltaInk(k.Move), true, TextAnchor.MiddleLeft);
+                Draw.TextFit(new Rect(x + numW * 0.6f, row.y, numW * 0.5f, row.height), mv, D.FontMin, k.New ? Look.PastelSubInk : DeltaInk(k.Move), true, TextAnchor.MiddleLeft);
                 var tile = new Rect(x + numW + D.Gap * 2f, row.center.y - C.Tile * 0.5f, C.Tile, C.Tile);
                 Tile(tile, k.Band.Color, k.Band.Name);
                 float nameX = tile.xMax + S.Pad, nameW = body.xMax - colW * 2f - barW - S.Pad * 2f - nameX;

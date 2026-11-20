@@ -116,7 +116,7 @@ namespace ConcertMod.UI
             Draw.TextFit(new Rect(S.Pad + bigW + D.Gap * 2f, y, w * 0.5f, D.LineBody + D.Gap), $"매 팔림 · 남은 자리 {Math.Max(0, s.Cap - s.Sold):#,0} · 정원 {s.Cap:#,0}", D.FontMin, S.SubInk);
             double left = Tickets.HoursToSellOut(s);
             string tail = s.SoldOut ? "매진" : left < 0 ? "다 팔리지 않을 수 있어요" : left < 1 ? "곧 매진" : $"매진까지 약 {Math.Ceiling(left)}시간";
-            Draw.TextFit(new Rect(S.Pad, y, w - S.Pad * 2f, D.LineBody + D.Gap), $"{Mathf.RoundToInt(s.Fill * 100f)}% · {tail}", D.FontValue, Look.PastelInk, true, TextAnchor.MiddleRight);
+            Draw.TextFit(new Rect(S.Pad, y, w - S.Pad * 2f, D.LineBody + D.Gap), $"{Mathf.RoundToInt(s.Fill * 100f)}% · {tail}", D.FontValue, Look.PastelSubInk, true, TextAnchor.MiddleRight);
             y += D.LineBody + D.Gap * 3f;
             if (Draw.Repaint)
             {
@@ -162,7 +162,7 @@ namespace ConcertMod.UI
                 var row = new Rect(body.x, body.y + rh * i, body.width, rh);
                 var ic = new Rect(row.x, row.center.y - C.Tile * 0.45f, C.Tile * 0.9f, C.Tile * 0.9f);
                 if (Draw.Repaint) Draw.Round(ic, Pal.Inset, Board.BoxRadius * 1.25f);
-                Draw.TextFit(ic, Tickets.Sites[i].Substring(Tickets.Sites[i].Length - 1), D.FontDesc, Look.PastelInk, true, TextAnchor.MiddleCenter);
+                Draw.TextFit(ic, Tickets.Sites[i].Substring(Tickets.Sites[i].Length - 1), D.FontDesc, Look.PastelSubInk, true, TextAnchor.MiddleCenter);
                 float tx = ic.xMax + S.Pad, tw = row.xMax - tx;
                 int n = Tickets.SiteSold(s, i);
                 Draw.TextFit(new Rect(tx, row.y + D.Gap * 2f, tw, D.LineBody), Tickets.Sites[i], D.FontBody, Pal.Txt, true);

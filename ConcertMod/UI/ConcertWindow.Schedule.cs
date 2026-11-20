@@ -62,7 +62,7 @@ namespace ConcertMod.UI
             Draw.TextFit(new Rect(body.x, y, hw, D.LineBody + D.Gap), head, C.BigFont, Pal.Txt, true);
             Draw.TextFit(new Rect(body.x + hw + D.Gap * 2f, y, body.width * 0.6f, D.LineBody + D.Gap), $"명 입장 · 오는 중 {s.Incoming:#,0} · 최대 {s.Max:#,0}", D.FontMin, S.SubInk);
             float pct = s.Max > 0 ? Mathf.Clamp01((float)s.Arrived / s.Max) : 0f, inc = s.Max > 0 ? Mathf.Clamp01((float)s.Incoming / s.Max) : 0f;
-            Draw.TextFit(new Rect(body.x, y, body.width, D.LineBody + D.Gap), Mathf.RoundToInt(pct * 100f) + "%", D.FontValue, Look.PastelInk, true, TextAnchor.MiddleRight);
+            Draw.TextFit(new Rect(body.x, y, body.width, D.LineBody + D.Gap), Mathf.RoundToInt(pct * 100f) + "%", D.FontValue, Look.PastelSubInk, true, TextAnchor.MiddleRight);
             y += D.LineBody + D.Gap * 3f;
             if (Draw.Repaint)
             {

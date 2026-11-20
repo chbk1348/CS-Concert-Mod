@@ -70,7 +70,7 @@ namespace ConcertMod.UI
                 float nw = Mathf.Min(tw, Mathf.Ceil(Draw.TextWidth(name, D.FontBody, true)));
                 Draw.TextFit(new Rect(tx, row.center.y - D.LineBody, nw, D.LineBody), name, D.FontBody, Pal.Txt, true);
                 string tag = l.Site >= 0 ? Tickets.Sites[l.Site] + " 단독" : l.State == LetterState.Waiting && (now - l.Arrived).TotalDays < 1 ? "새로 옴" : null;
-                if (tag != null) Badge.Pair(tx + nw + D.Gap * 2f, row.center.y - D.LineBody * 0.5f, tag, l.Site >= 0 ? Pal.ConcertSeatR : Look.PastelFill, l.Site >= 0 ? Draw.On(Pal.ConcertSeatR) : Look.PastelInk);
+                if (tag != null) Badge.Pair(tx + nw + D.Gap * 2f, row.center.y - D.LineBody * 0.5f, tag, l.Site >= 0 ? Pal.ConcertSeatR : Look.PastelFill, l.Site >= 0 ? Draw.On(Pal.ConcertSeatR) : Look.PastelSubInk);
                 Draw.TextFit(new Rect(tx, row.center.y + D.Gap, tw, D.LineSub), $"{Letters.FromOf(l)} · {l.Days}일 · {l.Hour:00}:00 · {Price(l.Price)}", D.FontMin, S.SubInk);
                 var rr = new Rect(row.xMax - S.Pad - rw, row.y, rw, row.height);
                 Draw.TextFit(new Rect(rr.x, row.center.y - D.LineBody, rr.width, D.LineBody), Day(l.Arrived), D.FontMin, Pal.Light, false, TextAnchor.MiddleRight);
@@ -88,9 +88,9 @@ namespace ConcertMod.UI
             {
                 case LetterState.Waiting:
                     text = left <= 3 ? $"{left}일 뒤 철회" : l.Held ? "보류 중" : "검토 중";
-                    ink = left <= 3 ? Pal.ConcertSeatA : Look.PastelInk;
+                    ink = left <= 3 ? Pal.ConcertSeatA : Look.PastelSubInk;
                     break;
-                case LetterState.Approved: text = "승인 · 빈 칸 기다림"; ink = Look.PastelInk; break;
+                case LetterState.Approved: text = "승인 · 빈 칸 기다림"; ink = Look.PastelSubInk; break;
                 case LetterState.Booked: text = $"{Day(l.Booked)} 잡힘"; ink = Pal.ConcertUp; break;
                 case LetterState.Rejected: text = "거절"; ink = S.SubInk; break;
                 default: text = "철회"; ink = S.SubInk; break;

@@ -198,8 +198,10 @@ namespace ConcertMod.Data
 
         static bool Prepare()
         {
-            if (TargetMethod() != null && AccessTools.Field(typeof(AudioManager), "m_musicVolume") != null) return true;
-            Core.Log.Warn("AudioManager.LateUpdate · m_musicVolume 를 찾지 못해 공연 중 배경음악 줄이기를 쉼(게임 판 확인)");
+            bool method = TargetMethod() != null, field = AccessTools.Field(typeof(AudioManager), "m_musicVolume") != null;
+            if (method && field) return true;
+            // 게임 판에는 둘 다 있는데 0.3.0 로그에서 false — 어느 쪽이 없는지 남겨 원인을 좁힘
+            Core.Log.Warn($"공연 중 배경음악 줄이기를 쉼(게임 판 확인): AudioManager.LateUpdate {(method ? "있음" : "없음")} · m_musicVolume {(field ? "있음" : "없음")}");
             return false;
         }
 

@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.3.0";
+        public const string Version = "0.3.1";
 
         public override string BaseName => "콘서트 Extension";
 
@@ -27,6 +27,9 @@ namespace ConcertMod
         static readonly CSCommonRelease[] Changelog =
         {
             new(Version, "2026-11-19",
+                "[수정] 다크 테마에서 보라 · 강조 글자(의향서 상태 · 예약 줄 · 판매율 · 이번 달 · 차트 NEW 등)가 바탕에 묻혀 안 보이던 것 · 어두운 바탕용 밝은 강조 글자로 바꿈",
+                "[변경] 공연 중 배경음악 줄이기가 쉴 때 로그에 게임 메서드 · 필드 중 무엇이 없는지 남겨요"),
+            new("0.3.0", "2026-11-19",
                 "[신규] 아티스트 무대: 게임 기본 밴드 3팀 대신 모드 아티스트가 공연해요 · 지금은 한국 대표 5팀(BTS · BLACKPINK · NewJeans · TWICE · SEVENTEEN) · 공연마다 차례로 나가고 인기 · 입장권은 아티스트마다 따로예요 · 게임 정보 창 밴드 이름도 아티스트로",
                 "[변경] 옛 세이브의 밴드 인기 · 입장권 · 공연 기록 · 의향서 · 예약은 그때 보이던 아티스트로 넘겨받아요",
                 "[신규] 아티스트 음악: 모드 폴더 Music/<아티스트 이름>/ 에 .ogg · .wav 곡을 넣으면 그 아티스트 공연 중에 공연장에서 차례로 틀어요 · 가까이 갈수록 크게 들려요 · 설정 '공연 중 공연 소리'를 끄면 멈춰요"),
