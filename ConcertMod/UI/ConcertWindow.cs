@@ -95,7 +95,7 @@ namespace ConcertMod.UI
             HandleDrag(Rect);
             var r = Rect;
             Panel.Frame(r, D.RadiusWindow);
-            string title = "콘서트 Extension · " + Names[tab] + (tab == TabBooking ? " · " + BookSubs[bookSub] : "");
+            string title = "Concert Extension · " + Names[tab] + (tab == TabBooking ? " · " + BookSubs[bookSub] : "");
             var now = SimulationManager.instance.m_currentGameTime;
             if (WindowHead.In(r, null, title, Mod.Version, HeadSub(), $"{now.Year}년 {now.Month}월 {now.Day}일 {now.Hour:00}:{now.Minute:00}", Shows.Now != null && Shows.Now.Active ? "공연 중" : "", Pal.Primary, "닫기(Esc)")) Close();
             DrawBody(r);
@@ -214,7 +214,7 @@ namespace ConcertMod.UI
 
         // ---- 자기 퀵 버튼(허브가 없거나 '모드 허브 연결'을 껐을 때: 왼쪽 둥근 버튼 · 끌어 옮김 · 자리는 설정 파일에)
 
-        public static bool OwnLauncher => !YukiModBoxEntry.HubOwnsLauncher || !ConcertSetting.Current.HubLinked;
+        public static bool OwnLauncher => !ModHubEntry.HubOwnsLauncher || !ConcertSetting.Current.HubLinked;
 
         /// <summary>기본 자리 화면 높이 비율(다른 모드 퀵 버튼과 겹치지 않게).</summary>
         const float LauncherTop = 0.55f;
@@ -268,8 +268,8 @@ namespace ConcertMod.UI
                 else if (r.Contains(m)) Toggle();
                 e.Use();
             }
-            if (Draw.Repaint) Fab.In(r, YukiModBoxEntry.Icon, FabTone.Plain, Visible);
-            if (!fabDragging && Draw.Hover(r)) Tooltip.Draw(r, "콘서트 Extension · 끌어서 옮기기");
+            if (Draw.Repaint) Fab.In(r, ModHubEntry.Icon, FabTone.Plain, Visible);
+            if (!fabDragging && Draw.Hover(r)) Tooltip.Draw(r, "Concert Extension · 끌어서 옮기기");
         }
     }
 }

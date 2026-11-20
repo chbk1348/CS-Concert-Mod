@@ -10,12 +10,12 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.3.1";
+        public const string Version = "0.3.2";
 
-        public override string BaseName => "콘서트 Extension";
+        public override string BaseName => "Concert Extension";
 
-        /// <summary>output_log.txt 머리 [콘서트 Extension].</summary>
-        public override string LogName => "[콘서트 Extension]";
+        /// <summary>output_log.txt 머리 [Concert Extension].</summary>
+        public override string LogName => "[Concert Extension]";
 
         public override string HarmonyID => "chbk1348.concertmod";
 
@@ -26,7 +26,9 @@ namespace ConcertMod
 
         static readonly CSCommonRelease[] Changelog =
         {
-            new(Version, "2026-11-19",
+            new(Version, "2026-11-20",
+                "[변경] 모드 이름을 'Concert Extension' 으로 바꿨어요(설정 · 세이브는 그대로)"),
+            new("0.3.1", "2026-11-19",
                 "[수정] 다크 테마에서 보라 · 강조 글자(의향서 상태 · 예약 줄 · 판매율 · 이번 달 · 차트 NEW 등)가 바탕에 묻혀 안 보이던 것 · 어두운 바탕용 밝은 강조 글자로 바꿈",
                 "[변경] 공연 중 배경음악 줄이기가 쉴 때 로그에 게임 메서드 · 필드 중 무엇이 없는지 남겨요"),
             new("0.3.0", "2026-11-19",

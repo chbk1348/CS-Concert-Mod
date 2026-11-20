@@ -5,7 +5,7 @@ namespace ConcertMod.UI
     /// <summary>인게임 설정 패널(CSCommon): 모드 허브 연결.</summary>
     public sealed class OptionsPanel : CSCommonOptionsPanel
     {
-        protected override string LogoIcon => YukiModBoxEntry.Icon;
+        protected override string LogoIcon => ModHubEntry.Icon;
 
         protected override void Build()
         {

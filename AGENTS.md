@@ -80,7 +80,7 @@
 
 ---
 
-## 7. 모드 전용 규칙 — 콘서트 Extension
+## 7. 모드 전용 규칙 — Concert Extension
 
 - **디자인 기준**: 화면은 캔버스 「[CSCommonUX 3.0] 콘서트 Extension」(https://claude.ai/artifact/SiPG5KdUX6uWE9VPjTPrZ9) 보드를 따른다.
   - 다크 · Violet 팔레트. 탭은 일정 · 차트 · 흥행 · 예약, 설정은 FAB.
