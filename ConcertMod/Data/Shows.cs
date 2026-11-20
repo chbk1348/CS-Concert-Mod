@@ -69,7 +69,7 @@ namespace ConcertMod.Data
         public static Band BandOf(ushort id, ref EventData d) => BandOf(Lineup.ArtistOf(id, d.m_startFrame) ?? d.Info?.name);
 
         /// <summary>아직 안 만든 다음 공연(게임이 고른 자리 프리팹)의 아티스트: 예약 계획이 그 자리면 계획 아티스트, 아니면 그 자리 차례.</summary>
-        static Band Predict(EventInfo slot)
+        internal static Band Predict(EventInfo slot)
         {
             var p = Booking.Current;
             var planned = p != null && !p.Stadium && p.Done < p.Days ? BandOf(p.Band) : null;

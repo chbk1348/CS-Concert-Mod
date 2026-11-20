@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.3.2";
+        public const string Version = "0.3.3";
 
         public override string BaseName => "Concert Extension";
 
@@ -27,6 +27,8 @@ namespace ConcertMod
         static readonly CSCommonRelease[] Changelog =
         {
             new(Version, "2026-11-20",
+                "[수정] 게임 축제 정보 창의 아티스트 · 인기 표 · 지금 공연 · 다음 공연에 게임 기본 밴드 이름(NESTOR 등)이 그대로 나오던 것: 모드 아티스트 이름 · 인기로 보여요"),
+            new("0.3.2", "2026-11-20",
                 "[변경] 모드 이름을 'Concert Extension' 으로 바꿨어요(설정 · 세이브는 그대로)"),
             new("0.3.1", "2026-11-19",
                 "[수정] 다크 테마에서 보라 · 강조 글자(의향서 상태 · 예약 줄 · 판매율 · 이번 달 · 차트 NEW 등)가 바탕에 묻혀 안 보이던 것 · 어두운 바탕용 밝은 강조 글자로 바꿈",
