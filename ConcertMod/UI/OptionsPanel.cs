@@ -1,4 +1,4 @@
-using CSCommonUX.UI;
+using CSCommonUX;
 
 namespace ConcertMod.UI
 {
