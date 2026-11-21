@@ -88,6 +88,8 @@ namespace ConcertMod.Data
 
         public static bool IsRented(ushort b) { lock (gate) return Rented.Contains(b); }
 
+        public static ushort[] RentedSnapshot() { lock (gate) return Rented.ToArray(); }
+
         /// <summary>페스티벌 구역이 없을 때 다음 공연 · 예매 · 의향서가 가는 경기장(고른 곳 → 빌린 첫 곳 → 없으면 0).</summary>
         public static ushort Default()
         {
@@ -170,7 +172,8 @@ namespace ConcertMod.Data
                     if (band?.Info?.m_eventAI is not ConcertAI cai) { waitWhy[s] = "공연할 밴드가 없어요"; continue; }
                     uint start = Booking.AtHour(now + Frames(cai.m_prepareDuration), planned ? plan.Hour : Mathf.RoundToInt(cai.m_startTime));
                     uint end = start + Frames(cai.m_eventDuration + cai.m_disorganizeDuration);
-                    if (end + Frames(MarginHours) > match.m_startFrame - Frames(mai.m_prepareDuration))
+                    // 확정한 공연(의향서 · 예약 계획)은 틈을 기다리지 않음: 다음 경기를 지우면 게임이 공연 뒤에 다시 잡음(경기가 공연 뒤로 밀림)
+                    if (!planned && end + Frames(MarginHours) > match.m_startFrame - Frames(mai.m_prepareDuration))
                     {
                         // 다른 모드(프로야구 리그 홈구장 등)가 경기를 쉬지 않고 이으면 늘 여기
                         waitWhy[s] = $"다음 경기({Singleton<SimulationManager>.instance.FrameToTime(match.m_startFrame):M월 d일})까지 틈이 짧아 기다려요";
@@ -180,7 +183,7 @@ namespace ConcertMod.Data
                     var r = new Rent { Stadium = s, Band = band.Key, Start = start, End = end, AnchorPrev = prev, AnchorExpire = prev != 0 ? em.m_events.m_buffer[prev].m_expireFrame : 0u };
                     Active.Add(r);
                     em.ReleaseEvent(head);
-                    Core.Log.Detail($"경기장 대관: {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(band.Key)} · {Singleton<SimulationManager>.instance.FrameToTime(start):MM-dd HH:mm} (다음 경기 {Singleton<SimulationManager>.instance.FrameToTime(match.m_startFrame):MM-dd HH:mm})");
+                    (planned ? (Action<string>)Core.Log.Info : Core.Log.Detail)($"경기장 {(planned ? "확정 공연" : "대관")}: {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(band.Key)} · {Singleton<SimulationManager>.instance.FrameToTime(start):MM-dd HH:mm} (다음 경기 {Singleton<SimulationManager>.instance.FrameToTime(match.m_startFrame):MM-dd HH:mm})");
                 }
             }
         }

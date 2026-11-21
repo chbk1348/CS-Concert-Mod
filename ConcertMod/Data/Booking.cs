@@ -111,9 +111,9 @@ namespace ConcertMod.Data
         }
 
         /// <summary>계획 잡기(본 스레드에서 부름 → 시뮬레이션 스레드). 이미 만들어진 아직 준비 전 공연은 지워 게임이 계획대로 다시 만들게.</summary>
-        public static void Set(string bandKey, int days, int hour)
+        public static void Set(string bandKey, int days, int hour, ushort venue = 0)
         {
-            ushort festival = Shows.Venue;
+            ushort festival = venue != 0 ? venue : Shows.Venue;
             if (festival == 0) return;
             bool stadium = festival != Shows.Festival;
             SimulationManager.instance.AddAction(() =>
