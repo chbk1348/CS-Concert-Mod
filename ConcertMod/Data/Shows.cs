@@ -29,13 +29,15 @@ namespace ConcertMod.Data
         public long Ticket, Reward;
     }
 
-    /// <summary>다음에 열릴 공연(게임이 정한 밴드 · 시작 시각).</summary>
+    /// <summary>다음에 열릴 공연(게임이 정한 밴드 · 시작 시각 · 공연장 · 그 공연 입장권).</summary>
     internal struct NextShow
     {
         public Band Band;
         public DateTime Start;
         /// <summary>게임이 이미 만든 공연이면 그 이벤트 번호(아직 안 만든 칸은 0).</summary>
-        public ushort Id;
+        public ushort Id, Building;
+        public string Venue;
+        public int Price;
     }
 
     /// <summary>
@@ -69,11 +71,32 @@ namespace ConcertMod.Data
         public static Band BandOf(ushort id, ref EventData d) => BandOf(Lineup.ArtistOf(id, d.m_startFrame) ?? d.Info?.name);
 
         /// <summary>아직 안 만든 다음 공연(게임이 고른 자리 프리팹)의 아티스트: 예약 계획이 그 자리면 계획 아티스트, 아니면 그 자리 차례.</summary>
-        internal static Band Predict(EventInfo slot)
+        internal static Band Predict(EventInfo slot, ushort building)
         {
-            var p = Booking.Current;
+            var p = Booking.At(building);
             var planned = p != null && !p.Stadium && p.Done < p.Days ? BandOf(p.Band) : null;
             return planned != null && planned.Info == slot ? planned : Lineup.Pick(slot);
+        }
+
+        /// <summary>이 공연장의 다음 공연(없으면 null).</summary>
+        public static NextShow? NextAt(ushort venue)
+        {
+            if (venue != 0) foreach (var n in Next) if (n.Building == venue) return n;
+            return null;
+        }
+
+        /// <summary>아직 안 만든 칸 입장권: 그 공연장 계획 밴드면 계획(의향서) 값, 아니면 아티스트 값.</summary>
+        static int PriceFor(Band b, ushort building)
+        {
+            var p = Booking.At(building);
+            return p != null && p.Price > 0 && p.Band == b.Key ? p.Price : b.Price;
+        }
+
+        /// <summary>같은 공연장 · 같은 시작은 한 번만(게임 미리 보기가 계획 회차를 두 번 돌려줄 때).</summary>
+        static void AddNext(Band b, DateTime start, ushort id, ushort building, int price)
+        {
+            foreach (var n in Next) if (n.Building == building && n.Start == start) return;
+            Next.Add(new NextShow { Band = b, Start = start, Id = id, Building = building, Price = price, Venue = Singleton<BuildingManager>.instance.GetBuildingName(building, InstanceID.Empty) ?? "" });
         }
 
         /// <summary>밴드 목록(도시를 불러올 때 한 번): 게임 밴드 프리팹은 공연 자리, 무대에 오르는 건 아티스트 Lineup.Count 팀.</summary>
@@ -93,7 +116,8 @@ namespace ConcertMod.Data
             Artists.Assign(keys); // 옛 세이브: 프리팹 이름 → 그때 붙던 아티스트
             History.Rekey();
             lock (Letters.All) foreach (var l in Letters.All) l.Band = Artists.Of(l.Band);
-            if (Booking.Current is Plan p) p.Band = Artists.Of(p.Band);
+            foreach (var p in Booking.Plans) p.Band = Artists.Of(p.Band);
+            Booking.LinkOld();
             if (slots.Count == 0) return;
             int n = Math.Min(Lineup.Count, Artists.Names.Length);
             for (int i = 0; i < n; i++)
@@ -122,21 +146,77 @@ namespace ConcertMod.Data
             ReadEvents();
             Lineup.Sync();
             Next.Clear();
+            // 공연장: 페스티벌 구역(또는 기본 경기장) + 빌린 경기장 모두(페스티벌이 있어도 경기장 계획 · 공연이 보이게)
+            var places = new List<ushort>();
+            if (Venue != 0) places.Add(Venue);
+            foreach (var b in Rental.RentedSnapshot()) if (!places.Contains(b)) places.Add(b);
             // 이미 만들어진(아직 준비 전) 공연이 먼저, 그 뒤 게임이 정할 칸
             foreach (var s in All)
-                if (s.Building == Venue && !s.Preparing && !s.Active && !s.Done) Next.Add(new NextShow { Band = s.Band, Start = s.Start, Id = s.Id });
-            // 기본 공연장(경기장): 대관이 자리 잡는 중인 공연(아직 게임 이벤트 전)
-            var rent = StadiumVenue ? Rental.ActiveAt(Venue) : null;
-            if (rent != null && rent.State == 0 && BandOf(rent.Band) is Band rb) Next.Add(new NextShow { Band = rb, Start = SimulationManager.instance.FrameToTime(rent.Start) });
-            if (Festival != 0 && Next.Count < future.Length)
+                if (places.Contains(s.Building) && !s.Preparing && !s.Active && !s.Done)
+                {
+                    int bound = Lineup.PriceOf(s.Id, s.StartFrame);
+                    AddNext(s.Band, s.Start, s.Id, s.Building, bound > 0 ? bound : s.Band.Price);
+                }
+            // 경기장: 대관이 자리 잡는 중인 공연(아직 게임 이벤트 전)
+            foreach (var b in places)
             {
-                int n = Singleton<EventManager>.instance.GetFutureEvents(Festival, future, future.Length - Next.Count);
+                if (b == Festival) continue;
+                var rent = Rental.ActiveAt(b);
+                if (rent != null && rent.State == 0 && BandOf(rent.Band) is Band rb) AddNext(rb, SimulationManager.instance.FrameToTime(rent.Start), 0, b, PriceFor(rb, b));
+                // 잡은 계획인데 아직 넣지 못함(경기 중 등): 대관이 넣을 때로 셈한 시각
+                else if (rent == null && Booking.At(b) is Plan sp && sp.Stadium && BandOf(sp.Band) is Band pb) AddNext(pb, Booking.Expect(b, pb, sp.Hour), 0, b, PriceFor(pb, b));
+            }
+            int have = 0;
+            foreach (var n in Next) if (n.Building == Festival) have++;
+            if (Festival != 0 && have < future.Length)
+            {
+                int n = Singleton<EventManager>.instance.GetFutureEvents(Festival, future, future.Length - have);
                 for (int i = 0; i < n; i++)
                 {
-                    var b = Predict(future[i].m_info);
-                    if (b != null) Next.Add(new NextShow { Band = b, Start = future[i].m_startTime });
+                    var b = Predict(future[i].m_info, Festival);
+                    if (b != null) AddNext(b, future[i].m_startTime, 0, Festival, PriceFor(b, Festival));
                 }
             }
+            Next.Sort((a, b) => a.Start.CompareTo(b.Start));
+        }
+
+        /// <summary>
+        /// 공연 이벤트 하나를 화면 값으로 복사(본 스레드 ReadEvents · 시뮬레이션 스레드 대관이 지우기 직전). 공연이 아니거나 아티스트가 없으면 null.
+        /// </summary>
+        internal static Show Capture(ushort id, ref EventData d)
+        {
+            if (!(d.Info?.m_eventAI is ConcertAI ai)) return null;
+            ai.CountVisitors(id, ref d, out int arrived, out int incoming, out int max);
+            int noise = 0;
+            float range = 0f;
+            ai.ModifyNoise(id, ref d, ref noise, ref range);
+            var s = new Show
+            {
+                Id = id,
+                Building = d.m_building,
+                StartFrame = d.m_startFrame,
+                Band = BandOf(id, ref d),
+                Color = ai.m_defaultBandColor, // m_color 는 페스티벌 테마 색이라 밴드 색은 AI 값(아티스트는 자리 프리팹 색)
+                Start = d.StartTime,
+                End = Singleton<SimulationManager>.instance.FrameToTime(d.m_expireFrame),
+                Venue = d.m_building != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(d.m_building, InstanceID.Empty) ?? "" : "",
+                Preparing = (d.m_flags & EventData.Flags.Preparing) != 0,
+                Active = (d.m_flags & EventData.Flags.Active) != 0,
+                Done = d.IsComplete,
+                Success = (d.m_flags & EventData.Flags.Success) != 0,
+                Cancelled = (d.m_flags & EventData.Flags.Cancelled) != 0,
+                Price = ai.GetTicketPrice(id, ref d),
+                Arrived = arrived,
+                Incoming = incoming,
+                Max = max,
+                Security = ai.GetSecurityBudget(id, ref d),
+                Noise = noise,
+                Crime = ai.GetCrimeAccumulation(id, ref d, 0),
+                PopDelta = d.m_popularityDelta,
+                Ticket = (long)d.m_ticketMoney,
+                Reward = (long)d.m_rewardMoney,
+            };
+            return s.Band == null ? null : s;
         }
 
         /// <summary>지난번 3단계로 올리려 한 페스티벌 구역(같은 건물은 한 번만 시도 — 올릴 단계가 없는 애셋이면 다시 안 봄).</summary>
@@ -175,46 +255,12 @@ namespace ConcertMod.Data
             All.Clear();
             Now = null;
             var em = Singleton<EventManager>.instance;
-            var sim = Singleton<SimulationManager>.instance;
-            var bm = Singleton<BuildingManager>.instance;
             for (int i = 1; i < em.m_events.m_size; i++)
             {
                 ref var d = ref em.m_events.m_buffer[i];
                 if ((d.m_flags & EventData.Flags.Created) == 0 || (d.m_flags & EventData.Flags.Deleted) != 0) continue;
-                var info = d.Info;
-                if (!(info?.m_eventAI is ConcertAI ai)) continue;
-                ushort id = (ushort)i;
-                ai.CountVisitors(id, ref d, out int arrived, out int incoming, out int max);
-                int noise = 0;
-                float range = 0f;
-                ai.ModifyNoise(id, ref d, ref noise, ref range);
-                var s = new Show
-                {
-                    Id = id,
-                    Building = d.m_building,
-                    StartFrame = d.m_startFrame,
-                    Band = BandOf(id, ref d),
-                    Color = ai.m_defaultBandColor, // m_color 는 페스티벌 테마 색이라 밴드 색은 AI 값(아티스트는 자리 프리팹 색)
-                    Start = d.StartTime,
-                    End = sim.FrameToTime(d.m_expireFrame),
-                    Venue = d.m_building != 0 ? bm.GetBuildingName(d.m_building, InstanceID.Empty) ?? "" : "",
-                    Preparing = (d.m_flags & EventData.Flags.Preparing) != 0,
-                    Active = (d.m_flags & EventData.Flags.Active) != 0,
-                    Done = d.IsComplete,
-                    Success = (d.m_flags & EventData.Flags.Success) != 0,
-                    Cancelled = (d.m_flags & EventData.Flags.Cancelled) != 0,
-                    Price = ai.GetTicketPrice(id, ref d),
-                    Arrived = arrived,
-                    Incoming = incoming,
-                    Max = max,
-                    Security = ai.GetSecurityBudget(id, ref d),
-                    Noise = noise,
-                    Crime = ai.GetCrimeAccumulation(id, ref d, 0),
-                    PopDelta = d.m_popularityDelta,
-                    Ticket = (long)d.m_ticketMoney,
-                    Reward = (long)d.m_rewardMoney,
-                };
-                if (s.Band == null) continue;
+                var s = Capture((ushort)i, ref d);
+                if (s == null) continue;
                 All.Add(s);
                 if (s.Active && (Now == null || !Now.Active)) Now = s;
                 else if (s.Preparing && Now == null) Now = s;

@@ -257,7 +257,7 @@ namespace ConcertMod.UI
             y += Badge.H + S.Pad;
             Draw.TextFit(new Rect(x, y, iw, C.NameFont * 1.2f), $"{s.Band.Name} LIVE in {City}", C.NameFont * 0.85f, Pal.SiteInk, true);
             y += C.NameFont * 1.2f + S.Pad;
-            string[,] info = { { "장소", Shows.VenueName }, { "공연 기간", date + $" · {s.Days}회차" }, { "공연 시간", $"{s.Start:HH:mm}" }, { "입장권", Price(s.Band.Price) }, { "정원", $"{s.Cap:#,0}석" } };
+            string[,] info = { { "장소", Shows.VenueName }, { "공연 기간", date + $" · {s.Days}회차" }, { "공연 시간", $"{s.Start:HH:mm}" }, { "입장권", Price(s.Price) }, { "정원", $"{s.Cap:#,0}석" } };
             for (int i = 0; i < info.GetLength(0); i++)
             {
                 Draw.TextFit(new Rect(x, y, S.CodeW * 2.4f, D.LineBody + D.Gap), info[i, 0], D.FontBody, Pal.SiteMuted);

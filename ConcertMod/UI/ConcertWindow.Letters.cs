@@ -91,7 +91,7 @@ namespace ConcertMod.UI
                     ink = left <= 3 ? Pal.ConcertSeatA : Look.PastelSubInk;
                     break;
                 case LetterState.Approved: text = "승인 · 빈 칸 기다림"; ink = Look.PastelSubInk; break;
-                case LetterState.Booked: text = $"{Day(l.Booked)} 잡힘"; ink = Pal.ConcertUp; break;
+                case LetterState.Booked: text = l.Why != null ? "일부만 잡힘" : $"{Day(l.Booked)} 잡힘"; ink = l.Why != null ? Look.PastelSubInk : Pal.ConcertUp; break;
                 case LetterState.Rejected: text = "거절"; ink = S.SubInk; break;
                 default: text = "철회"; ink = S.SubInk; break;
             }
@@ -109,25 +109,32 @@ namespace ConcertMod.UI
             float cx = cell.x + S.Pad, cw = cell.width - S.Pad * 2f, cy = cell.y + D.Gap * 3f;
             var now = SimulationManager.instance.m_currentGameTime;
             string head, value, note, side;
-            if (l.State == LetterState.Booked) { head = "잡은 날"; value = $"{Day(l.Booked)}에 다음 공연으로 잡았어요"; side = ""; note = "예약 · 다음 공연에서 회차를 볼 수 있어요"; }
-            else if (l.State == LetterState.Rejected || l.State == LetterState.Withdrawn) { head = "결과"; value = l.State == LetterState.Rejected ? "거절했어요" : "답이 없어 철회했어요"; side = ""; note = "새 의향서는 며칠마다 와요"; }
-            else if (Booking.Current != null || l.State == LetterState.Approved)
+            if (l.State == LetterState.Booked) { head = "잡은 날"; value = $"{Day(l.Booked)}에 다음 공연으로 잡았어요"; side = ""; note = l.Why ?? "예약 · 다음 공연에서 회차를 볼 수 있어요"; }
+            else if (l.State == LetterState.Rejected || l.State == LetterState.Withdrawn) { head = "결과"; value = l.State == LetterState.Rejected ? "거절했어요" : l.Why ?? "답이 없어 철회했어요"; side = ""; note = "새 의향서는 며칠마다 와요"; }
+            else if (l.State == LetterState.Approved)
+            {
+                head = "기다리는 까닭";
+                value = Letters.WaitWhy.TryGetValue(l.Id, out var why) ? why : "곧 다음 빈 공연 칸에 잡아요";
+                side = "";
+                note = $"{l.Days}일 · 매일 {l.Hour:00}:00 · 입장권 {Price(l.Price)} · " + (l.Deadline == default ? $"차례가 되면 {Letters.ApproveDays}일 기한을 세요" : $"{Day(l.Deadline)}까지 못 잡으면 철회해요");
+            }
+            else if (Booking.At(Letters.VenueOf(l)) != null)
             {
                 head = "승인하면 잡을 날짜";
                 value = "지금 잡힌 공연이 끝나면 이어서";
                 side = "다음 빈 공연 칸";
-                note = $"{l.Days}일 · 매일 {l.Hour:00}:00 · 입장권 {Price(l.Price)}로 맞춰요";
+                note = $"{l.Days}일 · 매일 {l.Hour:00}:00 · 입장권 {Price(l.Price)}로 그 공연에만 맞춰요";
             }
             else
             {
-                var day = Shows.Next.Count > 0 ? Shows.Next[0].Start.Date : now.Date.AddDays(1);
-                var start = day.AddHours(l.Hour);
-                if (start < now) start = start.AddDays(1);
+                ushort venue = Letters.VenueOf(l);
+                var start = Booking.Expect(venue, Shows.BandOf(l.Band), l.Hour);
                 var open = start.Date.AddDays(-Tickets.OpenDays).AddHours(Tickets.OpenHour);
+                string place = venue != 0 ? ColossalFramework.Singleton<BuildingManager>.instance.GetBuildingName(venue, InstanceID.Empty) ?? "" : "";
                 head = "승인하면 자동으로 잡을 날짜";
-                value = $"{When(start)} · {(Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장")}";
+                value = $"{When(start)} · {(place.Length > 0 ? place : "공연장")}";
                 side = "다음 빈 공연 칸";
-                note = $"{l.Days}일 공연 · 예매 오픈 {(open > now ? When(open) : "바로")} · 입장권 {Price(l.Price)}로 맞춰요";
+                note = $"{l.Days}일 공연 · 예매 오픈 {(open > now ? When(open) : "바로")} · 입장권 {Price(l.Price)}로 그 공연에만 맞춰요";
             }
             Draw.TextFit(new Rect(cx, cy, cw, D.LineSub), head, D.FontMin, S.SubInk);
             cy += D.LineSub + D.Gap;
@@ -139,7 +146,7 @@ namespace ConcertMod.UI
             if (l.State != LetterState.Waiting) return;
             float okW = Button.Width(null, "승인하고 날짜 잡기"), holdW = Button.Width(null, "보류"), noW = Button.Width(null, "거절");
             float bx = r.xMax - S.Pad - okW;
-            Button.In(new Rect(bx, y, okW, Button.H), null, "승인하고 날짜 잡기", "바라는 입장권으로 맞추고 다음 빈 공연 칸에 잡아요", Tone.Primary, click: () => Letters.Approve(l));
+            Button.In(new Rect(bx, y, okW, Button.H), null, "승인하고 날짜 잡기", "바라는 입장권으로 그 공연만 맞추고 다음 빈 공연 칸에 잡아요", Tone.Primary, click: () => Letters.Approve(l));
             bx -= D.Gap * 2f + holdW;
             Button.In(new Rect(bx, y, holdW, Button.H), null, "보류", $"답을 {Letters.HoldDays}일 미뤄요 · 한 번만", Tone.Neutral, enabled: !l.Held, click: () => Letters.Hold(l));
             bx -= D.Gap * 2f + noW;

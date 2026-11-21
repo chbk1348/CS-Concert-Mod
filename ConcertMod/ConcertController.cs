@@ -30,6 +30,7 @@ namespace ConcertMod
                 tickAt = Time.realtimeSinceStartup;
                 Data.Shows.Refresh();
                 Data.History.Track();
+                Data.Booking.Tick();
                 Data.Letters.Tick();
                 Data.Rental.Tick();
                 Data.Sound.Tick();
@@ -161,7 +162,7 @@ namespace ConcertMod
             });
             Data.Shows.Clear();
             Data.History.Clear();
-            Data.Booking.Current = null;
+            Data.Booking.Reset();
             Data.Tickets.Clear();
             Data.Letters.Clear();
             Data.Rental.Clear();

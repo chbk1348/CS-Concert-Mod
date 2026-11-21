@@ -86,7 +86,7 @@ namespace ConcertMod.UI
             }
             x += ic + S.Pad;
             // 오른쪽 세 칸
-            var next = Shows.Next.Count > 0 ? Shows.Next[0] : (NextShow?)null;
+            var next = Shows.NextAt(Shows.Venue);
             var sale = Tickets.Current;
             string[,] route =
             {
