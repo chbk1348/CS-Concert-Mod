@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.3.3";
+        public const string Version = "0.3.4";
 
         public override string BaseName => "Concert Extension";
 
@@ -26,7 +26,11 @@ namespace ConcertMod
 
         static readonly CSCommonRelease[] Changelog =
         {
-            new(Version, "2026-11-20",
+            new(Version, "2026-11-21",
+                "[수정] 의향서를 승인해도 '승인 · 빈 칸 기다림'에서 멈추던 문제: 경기장에 잡은 공연이 경기 사이 빈 틈을 끝없이 기다려 뒤 의향서까지 막혔어요 · 이제 확정한 공연은 그 경기장에서 열리고 다음 경기가 공연 뒤로 밀려요",
+                "[변경] 의향서마다 희망 공연장(페스티벌 구역 또는 빌린 경기장)이 정해지고, 승인하면 그곳에서 열려요",
+                "[변경] 의향서 승인 · 확정 · 기다리는 까닭을 로그에 남겨요"),
+            new("0.3.3", "2026-11-20",
                 "[수정] 게임 축제 정보 창의 아티스트 · 인기 표 · 지금 공연 · 다음 공연에 게임 기본 밴드 이름(NESTOR 등)이 그대로 나오던 것: 모드 아티스트 이름 · 인기로 보여요"),
             new("0.3.2", "2026-11-20",
                 "[변경] 모드 이름을 'Concert Extension' 으로 바꿨어요(설정 · 세이브는 그대로)"),

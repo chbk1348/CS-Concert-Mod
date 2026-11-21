@@ -19,6 +19,8 @@ namespace ConcertMod.Data
         public DateTime Arrived, Deadline, Booked;
         public LetterState State;
         public bool Held;
+        /// <summary>희망 공연장(페스티벌 구역 또는 빌린 경기장, 0 = 그때 기본 공연장).</summary>
+        public ushort Venue;
     }
 
     /// <summary>
@@ -29,7 +31,7 @@ namespace ConcertMod.Data
     internal static class Letters
     {
         public const string SaveKey = "ConcertMod.Letters";
-        const int Format = 1;
+        const int Format = 2;
 
         /// <summary>답 기다리는 날 · 보류로 더하는 날 · 동시에 기다리는 의향서 최대 · 남길 지난 의향서 · 다음 의향서까지 최소 · 최대 날 · 단독 제안 확률(%) · 단독 예매가 그 공연에 붙어 있는 날.</summary>
         public const int WaitDays = 10, HoldDays = 10, MaxWaiting = 4, Keep = 12, GapMin = 3, GapMax = 6, ExclusivePct = 20, ExclusiveDays = 30;
@@ -74,18 +76,31 @@ namespace ConcertMod.Data
             if (NextAt == default) NextAt = now.Date.AddDays(1);
             foreach (var l in All)
                 if (l.State == LetterState.Waiting && now >= l.Deadline) l.State = LetterState.Withdrawn;
-            if (Booking.Current == null && FreeSlot())
-                foreach (var l in All)
-                    if (l.State == LetterState.Approved)
+            // 승인한 의향서는 오래된 것부터 하나씩: 앞 계획이 다 열리면 그 의향서의 공연장에 잡음
+            for (int i = All.Count - 1; i >= 0; i--)
+            {
+                var l = All[i];
+                if (l.State != LetterState.Approved) continue;
+                var band = Shows.BandOf(l.Band);
+                if (band == null) { l.State = LetterState.Withdrawn; continue; }
+                ushort venue = VenueOf(l);
+                if (Booking.Current != null || !FreeSlot(venue))
+                {
+                    if (now.Date != waitLogged)
                     {
-                        var band = Shows.BandOf(l.Band);
-                        if (band == null) { l.State = LetterState.Withdrawn; continue; }
-                        Booking.SetPrice(band, l.Price);
-                        Booking.Set(l.Band, l.Days, l.Hour);
-                        l.State = LetterState.Booked;
-                        l.Booked = now;
-                        break;
+                        waitLogged = now.Date;
+                        var p = Booking.Current;
+                        Core.Log.Info($"의향서 승인 대기: {Artists.Of(l.Band)} · {Name(venue)} · " + (p != null ? $"앞 계획 {Artists.Of(p.Band)} · {Name(p.Building)} {p.Done}/{p.Days}회차" : "앞 계획 마지막 회차가 아직 준비 전"));
                     }
+                    break;
+                }
+                Booking.SetPrice(band, l.Price);
+                Booking.Set(l.Band, l.Days, l.Hour, venue);
+                l.State = LetterState.Booked;
+                l.Booked = now;
+                Core.Log.Info($"의향서 확정: {Artists.Of(l.Band)} · {Name(venue)} · {l.Days}일 {l.Hour:00}:00");
+                break;
+            }
             if (now >= NextAt)
             {
                 var rng = new Randomizer((ulong)now.Ticks);
@@ -95,11 +110,19 @@ namespace ConcertMod.Data
             Trim();
         }
 
+        static DateTime waitLogged;
+
+        static string Name(ushort b) => b != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(b, InstanceID.Empty) ?? b.ToString() : "공연장 없음";
+
+        /// <summary>의향서 공연장: 적힌 곳이 아직 페스티벌 구역이거나 빌린 경기장이면 그곳, 아니면 지금 기본 공연장.</summary>
+        public static ushort VenueOf(Letter l) =>
+            l.Venue != 0 && (l.Venue == Shows.Festival || Rental.IsRented(l.Venue)) ? l.Venue : Shows.Venue;
+
         /// <summary>새 계획을 잡아도 되는지: 페스티벌 맨 앞 이벤트가 방금 만든 계획 마지막 회차(아직 준비 전)가 아닐 때.</summary>
-        static bool FreeSlot()
+        static bool FreeSlot(ushort venue)
         {
-            if (Shows.StadiumVenue) return true; // 경기장 계획은 대관이 빈 틈마다 넣어 덮어쓸 회차가 없음
-            ushort head = Singleton<BuildingManager>.instance.m_buildings.m_buffer[Shows.Venue].m_eventIndex;
+            if (venue != Shows.Festival) return true; // 경기장 계획은 대관이 빈 틈마다 넣어 덮어쓸 회차가 없음
+            ushort head = Singleton<BuildingManager>.instance.m_buildings.m_buffer[venue].m_eventIndex;
             if (head == 0) return true;
             ref var e = ref Singleton<EventManager>.instance.m_events.m_buffer[head];
             bool started = (e.m_flags & (EventData.Flags.Preparing | EventData.Flags.Active | EventData.Flags.Completed | EventData.Flags.Cancelled)) != 0;
@@ -131,8 +154,13 @@ namespace ConcertMod.Data
                 Deadline = now.AddDays(WaitDays),
             };
             if (rng.Int32(100u) < ExclusivePct) l2.Site = rng.Int32((uint)Tickets.Sites.Length);
+            // 희망 공연장: 페스티벌 구역 · 빌린 경기장 중 하나
+            var venues = new List<ushort>();
+            if (Shows.Festival != 0) venues.Add(Shows.Festival);
+            venues.AddRange(Rental.RentedSnapshot());
+            l2.Venue = venues.Count > 0 ? venues[rng.Int32((uint)venues.Count)] : Shows.Venue;
             All.Insert(0, l2);
-            Core.Log.Detail($"의향서 도착: {Artists.Of(l2.Band)} · {FromOf(l2)} · {l2.Days}일 {l2.Hour:00}:00 · {l2.Price}");
+            Core.Log.Detail($"의향서 도착: {Artists.Of(l2.Band)} · {FromOf(l2)} · {Name(l2.Venue)} · {l2.Days}일 {l2.Hour:00}:00 · {l2.Price}");
         }
 
         /// <summary>지난 의향서(답한 것 · 철회)는 Keep 통까지만.</summary>
@@ -147,7 +175,12 @@ namespace ConcertMod.Data
             }
         }
 
-        public static void Approve(Letter l) { if (l.State == LetterState.Waiting) l.State = LetterState.Approved; }
+        public static void Approve(Letter l)
+        {
+            if (l.State != LetterState.Waiting) return;
+            l.State = LetterState.Approved;
+            Core.Log.Info($"의향서 승인: {Artists.Of(l.Band)} · {Name(VenueOf(l))}");
+        }
 
         public static void Reject(Letter l) { if (l.State == LetterState.Waiting) l.State = LetterState.Rejected; }
 
@@ -172,6 +205,8 @@ namespace ConcertMod.Data
         {
             var band = Shows.BandOf(l.Band);
             string name = band?.Name ?? Artists.Of(l.Band), city = SimulationManager.instance.m_metaData?.m_CityName ?? "";
+            ushort venue = VenueOf(l);
+            string venueName = venue != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(venue, InstanceID.Empty) ?? "" : "";
             int kind = KindOf(l), pop = band?.Pop ?? 0;
             string from = FromOf(l), en = l.Site >= 0 ? from : AgencyEn[Mathf.Clamp(l.Agency, 0, AgencyEn.Length - 1)];
             var t = l.Arrived;
@@ -190,10 +225,10 @@ namespace ConcertMod.Data
                 Keys = new[] { "희망 공연장", "희망 일정", "희망 입장권", "예상 관객", l.Site >= 0 ? "예매처" : "시에 드릴 것" },
                 Vals = new[]
                 {
-                    Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장",
+                    venueName.Length > 0 ? venueName : "공연장",
                     $"{l.Days}일 · 매일 {l.Hour:00}:00 시작",
                     price,
-                    $"회차마다 약 {Tickets.SessionCap(Shows.Venue):#,0}명 · 인기 {pop}",
+                    $"회차마다 약 {Tickets.SessionCap(venue):#,0}명 · 인기 {pop}",
                     l.Site >= 0 ? $"{from} 단독 예매" : "입장권 수입은 시에 그대로",
                 },
             };
@@ -254,6 +289,7 @@ namespace ConcertMod.Data
                 w.Write(l.Booked.Ticks);
                 w.Write((byte)l.State);
                 w.Write(l.Held);
+                w.Write(l.Venue);
             }
             w.Flush();
             return ms.ToArray();
@@ -269,7 +305,8 @@ namespace ConcertMod.Data
             NextAt = new DateTime(r.ReadInt64());
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++)
-                All.Add(new Letter
+            {
+                var l = new Letter
                 {
                     Id = r.ReadInt32(),
                     Band = r.ReadString(),
@@ -283,7 +320,10 @@ namespace ConcertMod.Data
                     Booked = new DateTime(r.ReadInt64()),
                     State = (LetterState)r.ReadByte(),
                     Held = r.ReadBoolean(),
-                });
+                };
+                if (format >= 2) l.Venue = r.ReadUInt16();
+                All.Add(l);
+            }
         }
 
         public static void Clear()
@@ -304,11 +344,11 @@ namespace ConcertMod.Data
                 Clear();
                 nextId = 7;
                 NextAt = new DateTime(2026, 7, 20);
-                All.Add(new Letter { Id = 6, Band = "Band A", Agency = 4, Site = 2, Days = 3, Hour = 20, Price = 3200, Arrived = new DateTime(2026, 7, 17), Deadline = new DateTime(2026, 7, 27), State = LetterState.Booked, Held = true });
+                All.Add(new Letter { Id = 6, Band = "Band A", Agency = 4, Site = 2, Days = 3, Hour = 20, Price = 3200, Arrived = new DateTime(2026, 7, 17), Deadline = new DateTime(2026, 7, 27), State = LetterState.Booked, Held = true, Venue = 4321 });
                 Read(Write());
                 var l = All.Count == 1 ? All[0] : null;
                 return l == null || nextId != 7 || NextAt != new DateTime(2026, 7, 20) || l.Id != 6 || l.Band != "Band A" || l.Agency != 4 || l.Site != 2 || l.Days != 3 || l.Hour != 20 || l.Price != 3200
-                    || l.Deadline != new DateTime(2026, 7, 27) || l.State != LetterState.Booked || !l.Held ? "의향서를 쓰고 읽은 값이 달라요" : null;
+                    || l.Deadline != new DateTime(2026, 7, 27) || l.State != LetterState.Booked || !l.Held || l.Venue != 4321 ? "의향서를 쓰고 읽은 값이 달라요" : null;
             }
             finally
             {
