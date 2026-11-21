@@ -21,20 +21,23 @@ namespace ConcertMod.Data
         public bool Held;
         /// <summary>희망 공연장(페스티벌 구역 또는 빌린 경기장, 0 = 그때 기본 공연장).</summary>
         public ushort Venue;
+        /// <summary>철회한 까닭(없으면 답이 없어 철회).</summary>
+        public string Why;
     }
 
     /// <summary>
     /// 의향서(캔버스 예약 · 의향서): 며칠마다 아티스트 기획사가 의향서를 보냄(밴드는 이 도시 게임 밴드, 기획사 이름은 가상 · 지역마다 문서 모양이 다름).
-    /// 시장이 승인하면 바라는 입장권으로 맞추고 다음 빈 공연 칸에 Booking 으로 잡음(이미 잡힌 계획이 있으면 끝난 뒤). 10일 안에 답이 없으면 철회, 보류는 한 번 10일 더.
+    /// 시장이 승인하면 그 공연장 다음 빈 공연 칸에 Booking 으로 잡음(그 공연장에 잡힌 계획이 있으면 끝난 뒤 · 다른 공연장 의향서는 따로) · 입장권은 그 계획 회차에만.
+    /// 10일 안에 답이 없으면 철회, 보류는 한 번 10일 더. 승인하고 ApproveDays 안에 못 잡거나 잡은 계획이 풀리면 철회.
     /// 예매처 단독 제안은 승인하면 그 공연 표를 그 사이트에서만 팔아요. 모든 값은 본 스레드에서만 바꿈.
     /// </summary>
     internal static class Letters
     {
         public const string SaveKey = "ConcertMod.Letters";
-        const int Format = 2;
+        const int Format = 3;
 
         /// <summary>답 기다리는 날 · 보류로 더하는 날 · 동시에 기다리는 의향서 최대 · 남길 지난 의향서 · 다음 의향서까지 최소 · 최대 날 · 단독 제안 확률(%) · 단독 예매가 그 공연에 붙어 있는 날.</summary>
-        public const int WaitDays = 10, HoldDays = 10, MaxWaiting = 4, Keep = 12, GapMin = 3, GapMax = 6, ExclusivePct = 20, ExclusiveDays = 30;
+        public const int WaitDays = 10, HoldDays = 10, ApproveDays = 14, MaxWaiting = 4, Keep = 12, GapMin = 3, GapMax = 6, ExclusivePct = 20, ExclusiveDays = 30;
 
         /// <summary>가상 기획사(지역마다 셋: 한국 0 ~ 2 · 일본 3 ~ 5 · 해외 6 ~ 8): 이름 · 영문 · 문서 종류(0 공문 · 1 서한 · 2 레터헤드 · 3 메모).</summary>
         public static readonly string[] AgencyName = { "하늘별 엔터테인먼트", "별빛 뮤직", "소리숲 레이블", "未来レコーズ", "月光ミュージック", "Paper Moon", "Northlight Music", "Harbor & Vine Live", "Static Bloom" };
@@ -76,31 +79,33 @@ namespace ConcertMod.Data
             if (NextAt == default) NextAt = now.Date.AddDays(1);
             foreach (var l in All)
                 if (l.State == LetterState.Waiting && now >= l.Deadline) l.State = LetterState.Withdrawn;
-            // 승인한 의향서는 오래된 것부터 하나씩: 앞 계획이 다 열리면 그 의향서의 공연장에 잡음
+            // 승인한 의향서는 오래된 것부터: 공연장마다 앞 계획이 다 열리면 그 의향서의 공연장에 잡음(막힌 공연장만 건너뜀)
+            WaitWhy.Clear();
+            bool logDay = now.Date != waitLogged;
+            var lined = new HashSet<ushort>();
             for (int i = All.Count - 1; i >= 0; i--)
             {
                 var l = All[i];
                 if (l.State != LetterState.Approved) continue;
-                var band = Shows.BandOf(l.Band);
-                if (band == null) { l.State = LetterState.Withdrawn; continue; }
+                if (Shows.BandOf(l.Band) == null) { Withdraw(l, "이 도시에 그 아티스트가 없어요", true); continue; }
                 ushort venue = VenueOf(l);
-                if (Booking.Current != null || !FreeSlot(venue))
+                bool behind = !lined.Add(venue);
+                string why = behind ? $"{Name(venue)}에 먼저 승인한 의향서가 잡히면 이어서 잡아요" : Blocked(venue);
+                // 승인 기한: 그 공연장 줄 맨 앞(앞 의향서 · 계획 목록의 앞 계획이 없음)이 된 때부터 셈 · 다시 막히면 처음부터
+                l.Deadline = Deadline(l.Deadline, !behind && Booking.At(venue) == null, now);
+                if (l.Deadline != default && now >= l.Deadline) { Withdraw(l, $"차례가 되고 {ApproveDays}일 안에 잡지 못했어요", true); continue; }
+                if (why != null)
                 {
-                    if (now.Date != waitLogged)
-                    {
-                        waitLogged = now.Date;
-                        var p = Booking.Current;
-                        Core.Log.Info($"의향서 승인 대기: {Artists.Of(l.Band)} · {Name(venue)} · " + (p != null ? $"앞 계획 {Artists.Of(p.Band)} · {Name(p.Building)} {p.Done}/{p.Days}회차" : "앞 계획 마지막 회차가 아직 준비 전"));
-                    }
-                    break;
+                    WaitWhy[l.Id] = why;
+                    if (logDay) Core.Log.Info($"의향서 승인 대기: {Artists.Of(l.Band)} · {why}");
+                    continue;
                 }
-                Booking.SetPrice(band, l.Price);
-                Booking.Set(l.Band, l.Days, l.Hour, venue);
+                Booking.Set(l.Band, l.Days, l.Hour, venue, l.Price, l.Id);
                 l.State = LetterState.Booked;
                 l.Booked = now;
                 Core.Log.Info($"의향서 확정: {Artists.Of(l.Band)} · {Name(venue)} · {l.Days}일 {l.Hour:00}:00");
-                break;
             }
+            if (logDay) waitLogged = now.Date;
             if (now >= NextAt)
             {
                 var rng = new Randomizer((ulong)now.Ticks);
@@ -111,6 +116,50 @@ namespace ConcertMod.Data
         }
 
         static DateTime waitLogged;
+
+        /// <summary>승인 기한: 줄 맨 앞이 아니면 비움(셈 안 함) · 막 맨 앞이 됐으면 지금 + ApproveDays · 이미 세는 중이면 그대로.</summary>
+        internal static DateTime Deadline(DateTime deadline, bool front, DateTime now) => !front ? default : deadline == default ? now.AddDays(ApproveDays) : deadline;
+
+        /// <summary>승인한 의향서가 기다리는 까닭(의향서 번호 → 한 줄, Tick 마다 다시 셈).</summary>
+        public static readonly Dictionary<int, string> WaitWhy = new();
+
+        /// <summary>이 공연장에 새 계획을 못 잡는 까닭(잡아도 되면 null).</summary>
+        static string Blocked(ushort venue)
+        {
+            if (venue == 0) return "공연장이 없어요";
+            var p = Booking.At(venue);
+            if (p != null) return $"{Name(venue)}에 잡힌 {Artists.Of(p.Band)} {p.Done}/{p.Days}회차가 끝나면 잡아요";
+            return FreeSlot(venue) ? null : $"{Name(venue)} 앞 공연 마지막 회차가 준비를 시작하면 잡아요";
+        }
+
+        /// <summary>
+        /// 계획이 풀리거나 남은 회차가 지워짐(본 스레드): 연 회차가 있으면 '잡음'으로 두고 일부만 열린 까닭을 남김, 없으면 철회.
+        /// opened = 만든 회차 수(-1 = 의향서 일수 - 1 · 다 만든 계획의 마지막 회차를 지울 때).
+        /// </summary>
+        public static void Stop(int id, string why, bool notify, int opened)
+        {
+            lock (All)
+                foreach (var l in All)
+                {
+                    if (l.Id != id) continue;
+                    if (opened < 0) opened = l.Days - 1;
+                    if (opened <= 0 || l.State != LetterState.Booked) { Withdraw(l, why, notify); return; }
+                    l.Why = $"{l.Days}회차 중 {opened}회차만 잡혔어요 · {why}";
+                    Core.Log.Info($"의향서 일부만 잡힘: {Artists.Of(l.Band)} · {l.Why}");
+                    if (notify) CSCommonUX.Toast.Show($"{Artists.Of(l.Band)} 공연이 {opened}회차까지만 잡혔어요 · {why}");
+                    return;
+                }
+        }
+
+        /// <summary>의향서 철회(본 스레드): 승인 · 잡힘 상태에서 까닭과 함께. notify = 알림 토스트.</summary>
+        static void Withdraw(Letter l, string why, bool notify)
+        {
+            if (l.State != LetterState.Approved && l.State != LetterState.Booked) return;
+            l.State = LetterState.Withdrawn;
+            l.Why = why;
+            Core.Log.Info($"의향서 철회: {Artists.Of(l.Band)} · {why}");
+            if (notify) CSCommonUX.Toast.Show($"{Artists.Of(l.Band)} 의향서를 철회했어요 · {why}");
+        }
 
         static string Name(ushort b) => b != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(b, InstanceID.Empty) ?? b.ToString() : "공연장 없음";
 
@@ -179,6 +228,7 @@ namespace ConcertMod.Data
         {
             if (l.State != LetterState.Waiting) return;
             l.State = LetterState.Approved;
+            l.Deadline = default; // 승인 기한은 그 공연장 줄 맨 앞이 되면 Tick 이 셈
             Core.Log.Info($"의향서 승인: {Artists.Of(l.Band)} · {Name(VenueOf(l))}");
         }
 
@@ -290,6 +340,7 @@ namespace ConcertMod.Data
                 w.Write((byte)l.State);
                 w.Write(l.Held);
                 w.Write(l.Venue);
+                w.Write(l.Why ?? "");
             }
             w.Flush();
             return ms.ToArray();
@@ -322,6 +373,9 @@ namespace ConcertMod.Data
                     Held = r.ReadBoolean(),
                 };
                 if (format >= 2) l.Venue = r.ReadUInt16();
+                if (format >= 3) l.Why = r.ReadString();
+                if (l.Why == "") l.Why = null;
+                if (format < 3 && l.State == LetterState.Approved) l.Deadline = default; // 승인 기한은 줄 맨 앞이 되면 Tick 이 셈
                 All.Add(l);
             }
         }
@@ -344,9 +398,27 @@ namespace ConcertMod.Data
                 Clear();
                 nextId = 7;
                 NextAt = new DateTime(2026, 7, 20);
-                All.Add(new Letter { Id = 6, Band = "Band A", Agency = 4, Site = 2, Days = 3, Hour = 20, Price = 3200, Arrived = new DateTime(2026, 7, 17), Deadline = new DateTime(2026, 7, 27), State = LetterState.Booked, Held = true, Venue = 4321 });
+                All.Add(new Letter { Id = 6, Band = "Band A", Agency = 4, Site = 2, Days = 3, Hour = 20, Price = 3200, Arrived = new DateTime(2026, 7, 17), Deadline = new DateTime(2026, 7, 27), State = LetterState.Booked, Held = true, Venue = 4321, Why = "까닭" });
                 Read(Write());
                 var l = All.Count == 1 ? All[0] : null;
+                if (l?.Why != "까닭") return "의향서 철회 까닭을 쓰고 읽은 값이 달라요";
+                // 0.3 판(형식 2)에서 승인한 의향서: 승인 기한을 비워 Tick 이 지금부터 셈
+                using (var ms = new MemoryStream())
+                using (var w = new BinaryWriter(ms))
+                {
+                    w.Write(2); w.Write(9); w.Write(0L); w.Write(1);
+                    w.Write(8); w.Write("Band B"); w.Write(0); w.Write(-1); w.Write(1); w.Write(19); w.Write(3000); w.Write(1L); w.Write(2L); w.Write(0L); w.Write((byte)LetterState.Approved); w.Write(false); w.Write((ushort)5);
+                    w.Flush();
+                    Read(ms.ToArray());
+                }
+                var old = All.Count == 1 ? All[0] : null;
+                if (old == null || old.State != LetterState.Approved || old.Deadline != default || old.Why != null || old.Venue != 5) return "0.3 판 승인 의향서를 읽지 못해요";
+                var t0 = new DateTime(2026, 8, 1);
+                if (Deadline(t0, false, t0) != default || Deadline(default, true, t0) != t0.AddDays(ApproveDays) || Deadline(t0, true, t0.AddDays(3)) != t0) return "승인 기한 셈이 틀려요";
+                Clear();
+                nextId = 7;
+                NextAt = new DateTime(2026, 7, 20);
+                All.Add(l);
                 return l == null || nextId != 7 || NextAt != new DateTime(2026, 7, 20) || l.Id != 6 || l.Band != "Band A" || l.Agency != 4 || l.Site != 2 || l.Days != 3 || l.Hour != 20 || l.Price != 3200
                     || l.Deadline != new DateTime(2026, 7, 27) || l.State != LetterState.Booked || !l.Held || l.Venue != 4321 ? "의향서를 쓰고 읽은 값이 달라요" : null;
             }

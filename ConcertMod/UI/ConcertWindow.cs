@@ -45,7 +45,12 @@ namespace ConcertMod.UI
             }
         }
 
-        public void Close() => Visible = false;
+        /// <summary>닫기(Esc · 머리줄): 확인 창이 떠 있으면 그것만 닫음.</summary>
+        public void Close()
+        {
+            if (confirming) confirming = false;
+            else Visible = false;
+        }
 
         public Rect Rect
         {
@@ -92,14 +97,22 @@ namespace ConcertMod.UI
         {
             if (!Visible) return;
             var e = Event.current;
-            HandleDrag(Rect);
             var r = Rect;
+            // 확인 창: 입력은 먼저 받고 남은 마우스 · 휠 · 키를 써 버림(아래 창이 못 받게), 그림은 맨 위
+            if (confirming && e.type != EventType.Repaint)
+            {
+                DrawConfirm(r);
+                if (confirming && (e.isMouse || e.type == EventType.ScrollWheel || e.isKey) && e.type != EventType.Layout) e.Use();
+            }
+            HandleDrag(r);
+            r = Rect;
             Panel.Frame(r, D.RadiusWindow);
             string title = "Concert Extension · " + Names[tab] + (tab == TabBooking ? " · " + BookSubs[bookSub] : "");
             var now = SimulationManager.instance.m_currentGameTime;
             if (WindowHead.In(r, null, title, Mod.Version, HeadSub(), $"{now.Year}년 {now.Month}월 {now.Day}일 {now.Hour:00}:{now.Minute:00}", Shows.Now != null && Shows.Now.Active ? "공연 중" : "", Pal.Primary, "닫기(Esc)")) Close();
             DrawBody(r);
             DrawBar(r);
+            if (confirming && e.type == EventType.Repaint) DrawConfirm(r);
             if (r.Contains(Draw.Mouse) && (e.type == EventType.MouseDown || e.type == EventType.ScrollWheel)) e.Use();
         }
 
@@ -143,7 +156,7 @@ namespace ConcertMod.UI
             if (Draw.Repaint) Draw.RoundBottom(view, S.WellFill, D.RadiusWindow);
             const float pad = S.WellPad;
             var inner = new Rect(view.x + pad, view.y + pad, view.width - pad * 2f, view.height - pad);
-            ScrollArea.In(inner, BodyId, contentH + (tab == TabBooking ? SubToolBar.SafeH : Toolbar.SafeH), true, _ => contentH = DrawPage(inner.width));
+            ScrollArea.In(inner, BodyId, contentH + (tab == TabBooking ? SubToolBar.SafeH : Toolbar.SafeH), !confirming, _ => contentH = DrawPage(inner.width));
         }
 
         float DrawPage(float w)

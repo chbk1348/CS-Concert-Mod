@@ -9,8 +9,8 @@ using S = CSCommonUX.Section;
 namespace ConcertMod.UI
 {
     /// <summary>
-    /// 예약 탭 · 다음 공연(캔버스 Main · booking): 공연 포스터(무대 장면 · D-n · 회차 칸) · 밴드 바꾸기 후보 5팀 · 공연 기간 1 ~ 3일 · 시작 시각 ·
-    /// 게임이 고른 밴드로 / 이 일정으로 잡기 · 라인업 · 밴드별 입장권(− + · 기본 대비). 잡은 계획은 Booking 이 게임 공연 만들기에 넣음.
+    /// 예약 탭 · 다음 공연(캔버스 Main · booking): 공연 포스터(무대 장면 · D-n · 회차 칸) · 밴드 바꾸기 후보 5팀 · 공연장 · 공연 기간 1 ~ 3일 · 시작 시각 ·
+    /// 게임이 고른 밴드로 / 이 일정으로 잡기(잡힌 계획을 덮으면 확인 창) · 라인업 · 밴드별 입장권(− + · 기본 대비). 잡은 계획은 Booking 이 게임 공연 만들기에 넣음.
     /// </summary>
     internal sealed partial class ConcertWindow
     {
@@ -23,13 +23,50 @@ namespace ConcertMod.UI
         string pickBand;
         int pickDays = Booking.MinDays, pickHour = -1;
 
+        /// <summary>고른 공연장(페스티벌 구역 · 빌린 경기장, 0 = 기본 공연장).</summary>
+        ushort pickVenue;
+
+        /// <summary>잡힌 계획을 덮거나(새 일정) 풀지(게임이 고른 밴드로) 묻는 확인 창.</summary>
+        bool confirming, confirmClear;
+        float confirmAt;
+
+        void Ask(bool clear)
+        {
+            confirming = true;
+            confirmClear = clear;
+            confirmAt = Time.realtimeSinceStartup;
+        }
+
+        static string PlaceOf(ushort b)
+        {
+            string n = b != 0 ? ColossalFramework.Singleton<BuildingManager>.instance.GetBuildingName(b, InstanceID.Empty) ?? "" : "";
+            return n.Length > 0 ? n : "공연장";
+        }
+
+        /// <summary>예약할 수 있는 공연장: 페스티벌 구역(또는 기본 경기장) + 빌린 경기장 · 이름(1초마다 다시 만듦 — OnGUI 마다 만들지 않게).</summary>
+        static readonly List<ushort> places = new();
+        static string[] placeNames = new string[0];
+        static float placesAt = float.NegativeInfinity;
+
+        static void RefreshPlaces()
+        {
+            if (Time.realtimeSinceStartup - placesAt < 1f) return;
+            placesAt = Time.realtimeSinceStartup;
+            places.Clear();
+            if (Shows.Venue != 0) places.Add(Shows.Venue);
+            foreach (var b in Rental.RentedSnapshot()) if (!places.Contains(b)) places.Add(b);
+            placeNames = new string[places.Count];
+            for (int i = 0; i < places.Count; i++) placeNames[i] = PlaceOf(places[i]);
+        }
+
         float BookingTab(float w)
         {
             if (Shows.Venue == 0) return Note(0f, w, "예약", "페스티벌 구역이나 경기장(Match Day · 대학)을 지으면 다음 공연을 잡을 수 있어요");
-            var plan = Booking.Current;
-            Band gameBand = null;
-            foreach (var n in Shows.Next) { gameBand = n.Band; break; }
-            if (plan != null && plan.Done > 0) gameBand = null;
+            RefreshPlaces();
+            if (!places.Contains(pickVenue)) pickVenue = Shows.Venue;
+            var plan = Booking.At(pickVenue);
+            // 게임이 고른 밴드: 그 공연장에 계획이 없을 때 다음 공연
+            Band gameBand = plan == null ? Shows.NextAt(pickVenue)?.Band : null;
             pickBand ??= plan?.Band ?? gameBand?.Key ?? (Shows.Bands.Count > 0 ? Shows.Bands[0].Key : null);
             var band = Shows.BandOf(pickBand);
             if (band == null) return Note(0f, w, "예약", "밴드가 없어요");
@@ -46,21 +83,15 @@ namespace ConcertMod.UI
             return leftH + gap + priceH;
         }
 
-        /// <summary>이 공연 첫 회차 시작: 다음 칸 날짜의 고른 시각(지나면 하루 뒤).</summary>
-        DateTime FirstStart()
-        {
-            var now = SimulationManager.instance.m_currentGameTime;
-            var day = Shows.Next.Count > 0 ? Shows.Next[0].Start.Date : now.Date.AddDays(1);
-            var t = day.AddHours(pickHour);
-            return t < now ? t.AddDays(1) : t;
-        }
+        /// <summary>이 공연 첫 회차 시작: 실제로 잡힐 때와 같은 셈(Booking.Expect).</summary>
+        DateTime FirstStart(Band band) => Booking.Expect(pickVenue, band, pickHour);
 
         void PosterPlate(Rect r, Band band, Band gameBand, Plan plan, float artH, float candH)
         {
             S.Frame(r);
             var art = new Rect(r.x, r.y, r.width, artH);
-            var first = FirstStart();
-            C.Stage(art, band.Color, band.Name, Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장");
+            var first = FirstStart(band);
+            C.Stage(art, band.Color, band.Name, PlaceOf(pickVenue));
             var now = SimulationManager.instance.m_currentGameTime;
             float bx = art.x + S.Pad, by = art.y + S.Pad + Badge.H * 0.5f;
             bx += Badge.Pair(bx, by, "D-" + Math.Max(0, (int)(first.Date - now.Date).TotalDays), band.Color, Draw.On(band.Color)) + D.Gap * 2f;
@@ -115,38 +146,60 @@ namespace ConcertMod.UI
                 if (Draw.Button(card)) pickBand = b.Key;
             }
             y += candH + S.Gap;
-            float hw = (iw - D.Gap * 2f) * 0.5f;
-            var lenCell = new Rect(x, y, hw, CellH + D.Gap * 4f);
-            var hourCell = new Rect(x + hw + D.Gap * 2f, y, hw, CellH + D.Gap * 4f);
+            float hw = (iw - D.Gap * 4f) / 3f;
+            var placeCell = new Rect(x, y, hw, CellH + D.Gap * 4f);
+            var lenCell = new Rect(placeCell.xMax + D.Gap * 2f, y, hw, CellH + D.Gap * 4f);
+            var hourCell = new Rect(lenCell.xMax + D.Gap * 2f, y, hw, CellH + D.Gap * 4f);
             if (Draw.Repaint)
             {
+                Draw.Round(placeCell, Pal.Inset, Board.BoxRadius * 2f);
                 Draw.Round(lenCell, Pal.Inset, Board.BoxRadius * 2f);
                 Draw.Round(hourCell, Pal.Inset, Board.BoxRadius * 2f);
             }
+            int pi = Mathf.Max(0, places.IndexOf(pickVenue));
+            Draw.TextFit(new Rect(placeCell.x + S.Pad, placeCell.y + D.Gap * 2f, placeCell.width, D.LineSub), "공연장", D.FontMin, S.SubInk);
+            if (places.Count > 0) Select.In(new Rect(placeCell.x + S.Pad, placeCell.y + D.Gap * 3f + D.LineSub, placeCell.width - S.Pad * 2f, Segmented.H), placeNames[pi], null, placeNames, null, pi, i => { if (i < places.Count) pickVenue = places[i]; });
             Draw.TextFit(new Rect(lenCell.x + S.Pad, lenCell.y + D.Gap * 2f, lenCell.width, D.LineSub), "공연 기간", D.FontMin, S.SubInk);
             Segmented.In(new Rect(lenCell.x + S.Pad, lenCell.y + D.Gap * 3f + D.LineSub, lenCell.width - S.Pad * 2f, Segmented.H), new[] { "1일", "2일", "3일" }, pickDays - 1, i => pickDays = i + 1);
-            Draw.TextFit(new Rect(hourCell.x + S.Pad, hourCell.y + D.Gap * 2f, hourCell.width, D.LineSub), "시작 시각 · 회차마다 같은 시각", D.FontMin, S.SubInk);
+            Draw.TextFit(new Rect(hourCell.x + S.Pad, hourCell.y + D.Gap * 2f, hourCell.width, D.LineSub), "시작 시각", D.FontMin, S.SubInk);
             var hours = new string[LastHour - FirstHour + 1];
             for (int i = 0; i < hours.Length; i++) hours[i] = $"{FirstHour + i:00}:00";
             int hi = Mathf.Clamp(pickHour - FirstHour, 0, hours.Length - 1);
             Select.In(new Rect(hourCell.x + S.Pad, hourCell.y + D.Gap * 3f + D.LineSub, hourCell.width - S.Pad * 2f, Segmented.H), hours[hi], null, hours, null, hi, i => pickHour = FirstHour + i);
             y += CellH + D.Gap * 4f + S.Gap;
             float okW = Button.Width(null, "이 일정으로 잡기"), resetW = Button.Width(null, "게임이 고른 밴드로");
-            Button.In(new Rect(r.xMax - S.Pad - okW, y, okW, Button.H), null, "이 일정으로 잡기", "고른 밴드 · 기간 · 시각으로 다음 공연을 잡아요", Tone.Primary, click: () => Booking.Set(pickBand, pickDays, pickHour));
+            Button.In(new Rect(r.xMax - S.Pad - okW, y, okW, Button.H), null, "이 일정으로 잡기", "고른 공연장 · 밴드 · 기간 · 시각으로 다음 공연을 잡아요", Tone.Primary, click: () =>
+            {
+                // 잡힌 계획이 있거나 지울 준비 전 공연이 다 만든 계획의 마지막 회차면 먼저 물음
+                if (Booking.At(pickVenue) == null && !Booking.PendingTail(pickVenue, out _)) Booking.Set(pickBand, pickDays, pickHour, pickVenue);
+                else Ask(false);
+            });
             Button.In(new Rect(r.xMax - S.Pad - okW - D.Gap * 2f - resetW, y, resetW, Button.H), null, "게임이 고른 밴드로", "잡은 계획을 지우고 게임대로 둬요", Tone.Neutral, enabled: plan != null, click: () =>
             {
-                Booking.Clear();
-                pickBand = null;
-                pickHour = -1;
-                pickDays = Booking.MinDays;
+                Ask(true); // 직접 잡은 계획 · 의향서 계획 모두 물은 뒤 풀기
             });
             if (plan != null)
-                Draw.TextFit(new Rect(x, y, iw - okW - resetW - S.Pad, Button.H), $"잡힘 · {Artists.Of(plan.Band)} {plan.Days}일 · {plan.Hour:00}:00 · {plan.Done}/{plan.Days}회차 만들어짐", D.FontMin, Look.PastelSubInk, true);
+                Draw.TextFit(new Rect(x, y, iw - okW - resetW - S.Pad, Button.H), $"잡힘 · {Artists.Of(plan.Band)} {plan.Days}일 · {plan.Hour:00}:00 · {plan.Done}/{plan.Days}회차를 잡았어요", D.FontMin, Look.PastelSubInk, true);
+        }
+
+        /// <summary>마지막 회차를 만든 의향서의 공연 일수(없으면 0) — 1일이면 덮을 때 철회(Letters.Stop 과 같은 갈래).</summary>
+        static int TailDays(int id)
+        {
+            lock (Letters.All) foreach (var l in Letters.All) if (l.Id == id) return l.Days;
+            return 0;
+        }
+
+        void ClearPlan()
+        {
+            Booking.Clear(pickVenue);
+            pickBand = null;
+            pickHour = -1;
+            pickDays = Booking.MinDays;
         }
 
         void LineupPlate(Rect r, Plan plan)
         {
-            var body = Plate(r, "라인업", ListIcon, "다음 두 공연");
+            var body = Plate(r, "라인업", ListIcon, "이 공연장 다음 두 공연");
             var box = new Rect(body.x, body.y, body.width, body.height);
             if (Draw.Repaint)
             {
@@ -154,16 +207,18 @@ namespace ConcertMod.UI
                 Draw.RoundOutline(box, Pal.Line, S.Radius - S.Pad * 0.5f);
             }
             float y = box.y + S.Pad * 1.5f;
-            Draw.TextFit(new Rect(box.x, y, box.width, D.LineSub), (Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장") + " 라인업", D.FontMin, Pal.Light, false, TextAnchor.MiddleCenter);
+            Draw.TextFit(new Rect(box.x, y, box.width, D.LineSub), PlaceOf(pickVenue) + " 라인업", D.FontMin, Pal.Light, false, TextAnchor.MiddleCenter);
             y += D.LineSub + S.Pad;
-            if (Shows.Next.Count == 0)
+            var next = new List<NextShow>();
+            foreach (var n in Shows.Next) if (n.Building == pickVenue && next.Count < 2) next.Add(n);
+            if (next.Count == 0)
             {
                 Draw.TextFit(new Rect(box.x, y, box.width, S.RowH), "잡힌 공연이 없어요", D.FontBody, S.SubInk, false, TextAnchor.MiddleCenter);
                 return;
             }
-            for (int i = 0; i < Shows.Next.Count; i++)
+            for (int i = 0; i < next.Count; i++)
             {
-                var n = Shows.Next[i];
+                var n = next[i];
                 float size = i == 0 ? C.NameFont + D.Gap * 2.5f : C.NameFont - D.Gap * 0.5f;
                 Draw.TextFit(new Rect(box.x + S.Pad, y, box.width - S.Pad * 2f, size + D.Gap * 2f), n.Band.Name, size, n.Band.Color, true, TextAnchor.MiddleCenter);
                 y += size + D.Gap * 3f;
@@ -174,6 +229,51 @@ namespace ConcertMod.UI
             if (Draw.Repaint) Draw.Fill(new Rect(box.center.x - S.Pad * 1.5f, y, S.Pad * 3f, 2f), Pal.Line);
             y += S.Pad;
             Draw.TextFit(new Rect(box.x, y, box.width, D.LineSub), "한 번에 한 팀 · 공연은 1 ~ 3일 · 회차마다 정한 시각에", D.FontMin, S.SubInk, false, TextAnchor.MiddleCenter);
+        }
+
+        /// <summary>잡힌 계획을 덮거나 풀지 묻는 확인 창(정본 Dialog · 창 위 덮개 Modal.Scrim). 입력은 OnGUI 가 먼저 넘김.</summary>
+        void DrawConfirm(Rect r)
+        {
+            var e = Event.current;
+            var plan = Booking.At(pickVenue);
+            int tailLetter = 0;
+            bool tail = plan == null && !confirmClear && Booking.PendingTail(pickVenue, out tailLetter);
+            if (plan == null && !tail)
+            {
+                confirming = false;
+                return;
+            }
+            if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
+            {
+                confirming = false;
+                e.Use();
+                return;
+            }
+            float k = Modal.Ease((Time.realtimeSinceStartup - confirmAt) / Modal.OpenSeconds);
+            Modal.Scrim(r, k, D.RadiusWindow);
+            string place = PlaceOf(pickVenue), text, title, ok;
+            if (tail)
+            {
+                title = "잡힌 공연을 바꿀까요?";
+                ok = "새 일정으로";
+                text = $"{place}의 다음 공연은 앞서 잡은 계획의 마지막 회차예요. 이 회차를 지우고 새 일정으로 잡아요." + (tailLetter == 0 ? "" : TailDays(tailLetter) <= 1 ? " 그 의향서는 철회돼요." : " 그 의향서는 앞 회차까지만 잡힌 것으로 남아요.");
+            }
+            else
+            {
+                string letter = plan.Letter == 0 ? "" : plan.Done > 0 ? " 이 계획을 만든 의향서는 잡은 회차까지만 남아요." : " 이 계획을 만든 의향서는 철회돼요.";
+                title = confirmClear ? "잡힌 공연을 풀까요?" : "잡힌 공연을 바꿀까요?";
+                ok = confirmClear ? "계획 풀기" : "새 일정으로";
+                text = $"{place}에 잡힌 {Artists.Of(plan.Band)} {plan.Days}일 공연을 " + (confirmClear ? "풀고 게임이 고른 밴드로 돌려요." : "지우고 새 일정으로 잡아요.")
+                    + $" 지금까지 {plan.Done}/{plan.Days}회차를 잡았어요." + letter;
+            }
+            int hit = Dialog.In(Dialog.Place(r, text, k), title, text, ok, "취소", false, k);
+            if (hit == 0) confirming = false;
+            else if (hit == 1)
+            {
+                confirming = false;
+                if (confirmClear) ClearPlan();
+                else Booking.Set(pickBand, pickDays, pickHour, pickVenue);
+            }
         }
 
         void PricePlate(Rect r)

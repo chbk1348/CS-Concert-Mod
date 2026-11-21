@@ -108,7 +108,7 @@ namespace ConcertMod.UI
                 Draw.Dot(new Vector2(sx, r.yMax), S.Pad * 0.55f, S.Plate);
             }
             float x = r.x + C.Strip + S.Pad, iw = r.width - C.Strip - C.StubW - S.Pad * 2f, y = r.y + S.Pad;
-            Draw.TextFit(new Rect(x, y, iw, D.LineSub), "입장권 · " + (Shows.VenueName.Length > 0 ? Shows.VenueName : "공연장"), D.FontMin, S.SubInk);
+            Draw.TextFit(new Rect(x, y, iw, D.LineSub), "입장권 · " + (n.Venue.Length > 0 ? n.Venue : "공연장"), D.FontMin, S.SubInk);
             y += D.LineSub + D.Gap;
             Draw.TextFit(new Rect(x, y, iw, D.LineBody + D.Gap * 2f), n.Band.Name, D.FontValue + D.Gap, Pal.Txt, true);
             y += D.LineBody + D.Gap * 3f;
@@ -118,7 +118,7 @@ namespace ConcertMod.UI
             Draw.TextFit(new Rect(x, y, iw, D.LineSub), "인기 " + n.Band.Pop, D.FontMin, S.SubInk);
             var stub = new Rect(r.xMax - C.StubW, r.y, C.StubW, r.height);
             Draw.TextFit(new Rect(stub.x, stub.center.y - D.LineSub - D.Gap, stub.width, D.LineSub), "입장권", D.FontMin, S.SubInk, false, TextAnchor.MiddleCenter);
-            Draw.TextFit(new Rect(stub.x, stub.center.y, stub.width, D.LineBody), Price(n.Band.Price), D.FontValue, Pal.Txt, true, TextAnchor.MiddleCenter);
+            Draw.TextFit(new Rect(stub.x, stub.center.y, stub.width, D.LineBody), Price(n.Price), D.FontValue, Pal.Txt, true, TextAnchor.MiddleCenter);
         }
 
         void PastPlate(Rect r, List<Record> past)
