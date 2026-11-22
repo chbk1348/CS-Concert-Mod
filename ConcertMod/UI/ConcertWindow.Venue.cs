@@ -87,7 +87,7 @@ namespace ConcertMod.UI
             x += ic + S.Pad;
             // 오른쪽 세 칸
             var next = Shows.NextAt(Shows.Venue);
-            var sale = Tickets.Current;
+            var sale = Tickets.Main; // 예매 탭에서 고른 공연장과 상관없이 기본 공연장
             string[,] route =
             {
                 { "다음 공연", next.HasValue ? $"{next.Value.Band.Name} · {Day(next.Value.Start)}" : "빈 날이 나면 잡아요" },
@@ -249,7 +249,7 @@ namespace ConcertMod.UI
             Color ink = S.SubInk;
             if (rent != null)
             {
-                text = $"{Artists.Of(rent.Band)} · {When(sim.FrameToTime(rent.Start))} 공연" + (rent.State == 0 ? " · 자리 잡는 중" : " 잡힘");
+                text = $"{Artists.Of(rent.Band)} · {When(sim.FrameToTime(rent.Start))} 공연" + (rent.State == RentState.Placing ? " · 자리 잡는 중" : " 잡힘");
                 ink = Pal.Txt;
             }
             else if (on) text = Rental.WaitReason(b) ?? "다음 경기 전 틈이 생기면 인기 1위 밴드로 공연을 잡아요";

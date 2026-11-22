@@ -76,7 +76,8 @@ namespace ConcertMod.Data
         {
             static void Postfix(UIPanel panel, EventManager.FutureEvent concert) => Core.Safe.Run("축제 창: 다음 공연 칸", () =>
             {
-                var b = Shows.Predict(concert.m_info, Shows.Festival);
+                // 지금 연 페스티벌 기준(페스티벌이 여럿이면 그 공연장 계획으로)
+                var b = Shows.Predict(concert.m_info, WorldInfoPanel.GetCurrentInstanceID().Building);
                 if (b != null) panel.Find<UILabel>("Name").text = b.Name;
             });
         }

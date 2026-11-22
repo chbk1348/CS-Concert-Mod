@@ -16,10 +16,11 @@ namespace ConcertMod.Data
         public int Site, Grade, Count;
     }
 
-    /// <summary>공연 하나의 예매(페스티벌 다음 공연): 오픈 시각 · 정원 · 원하는 사람 · 지금까지 판 매수.</summary>
+    /// <summary>공연 하나의 예매(고른 공연장 다음 공연): 오픈 시각 · 정원 · 원하는 사람 · 지금까지 판 매수 · 공연장 이름.</summary>
     internal sealed class Sale
     {
         public Band Band;
+        public string Venue = "";
         public DateTime Start, Open;
         public int Days, Cap, Want, Sold, Poster;
 
@@ -55,8 +56,26 @@ namespace ConcertMod.Data
         static int MaxPerPerson => Mathf.Clamp(ConcertSetting.Current.TicketMax, 1, 10);
         const float TauHours = 10f, QueueHours = 1.5f, QueueRatio = 1.5f;
 
-        public static Sale Current;
+        /// <summary>예매 탭에서 고른 공연장 예매 · 기본 공연장 예매(고른 곳과 상관없이 — 공연장 탭 기본 공연장 카드).</summary>
+        public static Sale Current, Main;
         public static readonly List<Buy> Feed = new();
+
+        /// <summary>예매 탭에서 고를 공연장(기본 공연장 · 페스티벌 구역 전부 · 다음 공연이 있는 빌린 경기장) · 그 이름 · 고른 공연장(0 = 기본). 모두 본 스레드.</summary>
+        public static readonly List<ushort> Venues = new();
+        public static readonly List<string> VenueNames = new();
+        public static ushort Pick;
+
+        /// <summary>예매 공연장 목록 만들기: 기본 공연장 → 페스티벌 구역 → 다음 공연이 있는 빌린 경기장(겹치면 한 번).</summary>
+        internal static void BuildVenues(List<ushort> into, ushort main, ushort[] festivals, ushort[] rented, Func<ushort, bool> hasNext)
+        {
+            into.Clear();
+            if (main != 0) into.Add(main);
+            foreach (var f in festivals) if (f != 0 && !into.Contains(f)) into.Add(f);
+            foreach (var b in rented) if (b != 0 && !into.Contains(b) && hasNext(b)) into.Add(b);
+        }
+
+        /// <summary>고른 공연장: 목록에 남아 있으면 그대로, 사라졌거나 안 골랐으면 기본 공연장.</summary>
+        internal static ushort Choose(List<ushort> venues, ushort pick, ushort main) => pick != 0 && venues.Contains(pick) ? pick : main;
 
         /// <summary>페스티벌 한 회차 정원(방문 자리 × 5/4, 게임 MonumentAI 와 같은 셈).</summary>
         public static int SessionCap(ushort building)
@@ -84,19 +103,60 @@ namespace ConcertMod.Data
         public static void Refresh()
         {
             Current = null;
-            var next = Shows.NextAt(Shows.Venue);
-            if (next == null) { Feed.Clear(); return; }
+            Main = null;
+            BuildVenues(Venues, Shows.Venue, Shows.Festivals, Rental.RentedSnapshot(), b => Shows.NextAt(b) != null);
+            VenueNames.Clear();
+            foreach (var b in Venues) VenueNames.Add(Singleton<BuildingManager>.instance.GetBuildingName(b, InstanceID.Empty) ?? "");
+            Pick = Choose(Venues, Pick, Shows.Venue);
+            var now = SimulationManager.instance.m_currentGameTime;
+            Current = SaleAt(Pick, now);
+            Main = Pick == Shows.Venue ? Current : SaleAt(Shows.Venue, now);
+            if (Current == null) Feed.Clear();
+            else MakeFeed(Current, now);
+        }
+
+        /// <summary>이 공연장 다음 공연의 예매(다음 공연이 없으면 null).</summary>
+        static Sale SaleAt(ushort venue, DateTime now)
+        {
+            var next = Shows.NextAt(venue);
+            if (next == null) return null;
             var n = next.Value;
             var plan = Booking.At(n.Building);
-            int days = plan != null && plan.Band == n.Band.Key ? plan.Days - Math.Max(0, plan.Done - 1) : 1;
-            int cap = SessionCap(Shows.Venue) * Math.Max(1, days);
-            var now = SimulationManager.instance.m_currentGameTime;
-            var s = new Sale { Band = n.Band, Start = n.Start, Days = Math.Max(1, days), Open = OpenOf(n.Start), Cap = cap, Price = n.Price, Want = WantOf(n.Band, cap, n.Price) };
+            int days = SessionsLeft(plan != null && plan.Band == n.Band.Key ? plan : null, n.Id != 0);
+            int cap = SessionCap(venue) * Math.Max(1, days);
+            var s = new Sale { Band = n.Band, Venue = n.Venue, Start = n.Start, Days = Math.Max(1, days), Open = OpenOf(n.Start), Cap = cap, Price = n.Price, Want = WantOf(n.Band, cap, n.Price) };
             s.Sold = SoldAt(s.Want, s.Cap, (now - s.Open).TotalHours);
             s.Site = Letters.ExclusiveSite(n.Band.Key);
             s.Poster = (int)((uint)(n.Band.Key.GetHashCode() ^ n.Start.Date.GetHashCode()) % 10u);
-            Current = s;
-            MakeFeed(s, now);
+            return s;
+        }
+
+        /// <summary>
+        /// 다음 공연부터 남은 회차: 계획이 없거나(다 만들어 빠짐 · 다른 밴드) 마지막 회차면 1, 다음 공연이 이미 만든 회차(nextMade)면 Days - Done + 1,
+        /// 아직 안 만든 회차(앞 회차가 열리는 중 · 첫 회차 전)면 Days - Done.
+        /// </summary>
+        internal static int SessionsLeft(Plan plan, bool nextMade) =>
+            plan == null ? 1 : Math.Max(1, nextMade && plan.Done > 0 ? plan.Days - plan.Done + 1 : plan.Days - plan.Done);
+
+        /// <summary>자체 검사: 남은 회차 진리표. 틀리면 설명, 맞으면 null.</summary>
+        public static string SelfCheck()
+        {
+            Plan P(int days, int done) => new() { Days = days, Done = done };
+            // 계획(일수/만든 회차, null = 없음) · 다음 공연이 이미 만든 회차인지 → 남은 회차
+            var plans = new[] { P(3, 0), P(3, 0), P(3, 1), P(3, 1), P(3, 2), P(3, 2), P(1, 0), null, null };
+            var made = new[] { false, true, true, false, true, false, false, true, false };
+            var want = new[] { 3, 3, 3, 2, 2, 1, 1, 1, 1 };
+            for (int i = 0; i < plans.Length; i++)
+                if (SessionsLeft(plans[i], made[i]) != want[i]) return $"남은 회차 셈이 틀려요({i}번: {SessionsLeft(plans[i], made[i])} ≠ {want[i]})";
+            // 예매 공연장 목록: 기본 → 페스티벌 → 다음 공연 있는 빌린 경기장(겹침 · 0 빼고) · 고른 곳이 사라지면 기본
+            var list = new List<ushort>();
+            BuildVenues(list, 5, new ushort[] { 5, 7 }, new ushort[] { 9, 11, 7, 0 }, b => b != 11);
+            if (list.Count != 3 || list[0] != 5 || list[1] != 7 || list[2] != 9) return "예매 공연장 목록이 틀려요";
+            BuildVenues(list, 9, new ushort[0], new ushort[] { 9 }, b => false);
+            if (list.Count != 1 || list[0] != 9) return "기본 경기장이 다음 공연 없이도 예매 공연장에 남아야 해요";
+            BuildVenues(list, 5, new ushort[] { 5, 7 }, new ushort[] { 9 }, b => true);
+            if (Choose(list, 7, 5) != 7 || Choose(list, 0, 5) != 5 || Choose(list, 11, 5) != 5) return "예매 공연장 고르기 · 사라질 때 기본으로 되돌리기가 틀려요";
+            return null;
         }
 
         /// <summary>대기줄: 오픈 직후 · 원하는 사람이 많을 때. 기다리는 사람 수(없으면 0).</summary>
@@ -156,10 +216,10 @@ namespace ConcertMod.Data
             return Shares.Length - 1;
         }
 
-        /// <summary>시뮬레이션 스레드: 이 공연 이벤트가 받을 관객 비율(예매한 만큼, 예매를 안 쓰면 1).</summary>
+        /// <summary>시뮬레이션 스레드: 이 공연 이벤트가 받을 관객 비율(예매한 만큼, 예매를 안 쓰면 1) — 페스티벌 구역 전부 · 빌린 경기장 공연. 예매 상태는 공연 값으로 그때 셈(공연장마다 따로 남기지 않음).</summary>
         public static float FillFor(ushort eventId, ref EventData data)
         {
-            if (!ConcertSetting.Current.Ticketing || data.m_building == 0 || data.m_building != Shows.Venue) return 1f;
+            if (!ConcertSetting.Current.Ticketing || !(Shows.IsFestival(data.m_building) || Rental.IsRented(data.m_building))) return 1f;
             var band = Shows.BandOf(eventId, ref data);
             if (band == null) return 1f;
             int cap = Math.Max(1, SessionCap(data.m_building));
@@ -172,7 +232,11 @@ namespace ConcertMod.Data
         public static void Clear()
         {
             Current = null;
+            Main = null;
             Feed.Clear();
+            Venues.Clear();
+            VenueNames.Clear();
+            Pick = 0;
         }
     }
 

@@ -26,6 +26,7 @@ namespace ConcertMod.Data
     /// </summary>
     internal static class History
     {
+        /// <summary>지난 공연(본 스레드가 바꾸고 화면이 읽음 · 저장은 시뮬레이션 스레드). 바꾸거나 사본 뜰 때 lock (All) — released lock 과 겹쳐 잡지 않음.</summary>
         public static readonly List<Record> All = new();
 
         const int Format = 3;
@@ -114,8 +115,11 @@ namespace ConcertMod.Data
             };
             foreach (var b in Shows.Bands) r.Pops[b.Key] = b.Pop;
             peak.Remove(s.Id);
-            All.Add(r);
-            if (All.Count > Keep) All.RemoveAt(0);
+            lock (All)
+            {
+                All.Add(r);
+                if (All.Count > Keep) All.RemoveAt(0);
+            }
             return true;
         }
 
@@ -123,37 +127,49 @@ namespace ConcertMod.Data
         static bool primed;
 
         /// <summary>설정 '공연 기록 지우기': 세이브에 남긴 지난 공연을 모두(이미 끝난 공연을 다시 적지 않게 본 표시는 둠).</summary>
-        public static void Forget() => All.Clear();
+        public static void Forget()
+        {
+            lock (All) All.Clear();
+        }
 
         /// <summary>옛 세이브: 밴드 프리팹 이름으로 남은 기록을 그때 붙던 아티스트 이름으로(LoadBands 에서 Artists.Assign 뒤).</summary>
         public static void Rekey()
         {
-            foreach (var r in All)
-            {
-                r.Key = Artists.Of(r.Key);
-                var pops = new Dictionary<string, int>();
-                foreach (var kv in r.Pops) pops[Artists.Of(kv.Key)] = kv.Value;
-                r.Pops = pops;
-            }
+            lock (All)
+                foreach (var r in All)
+                {
+                    r.Key = Artists.Of(r.Key);
+                    var pops = new Dictionary<string, int>();
+                    foreach (var kv in r.Pops) pops[Artists.Of(kv.Key)] = kv.Value;
+                    r.Pops = pops;
+                }
         }
 
         public static void Clear()
         {
             primed = false;
-            All.Clear();
+            lock (All) All.Clear();
             peak.Clear();
             seen.Clear();
             seenOld.Clear();
             lock (released) released.Clear();
         }
 
+        /// <summary>쓰기: 사본으로(저장은 시뮬레이션 스레드라 본 스레드 Track 이 목록을 바꾸는 중일 수 있음).</summary>
         public static byte[] Write()
+        {
+            List<Record> copy;
+            lock (All) copy = new List<Record>(All);
+            return Write(copy);
+        }
+
+        static byte[] Write(List<Record> list)
         {
             using var ms = new MemoryStream();
             using var w = new BinaryWriter(ms);
             w.Write(Format);
-            w.Write(All.Count);
-            foreach (var r in All)
+            w.Write(list.Count);
+            foreach (var r in list)
             {
                 w.Write(r.Frame);
                 w.Write(r.Key ?? "");
@@ -181,19 +197,28 @@ namespace ConcertMod.Data
         /// <summary>읽기. 0.2.0 판은 형식 2 인데 보안 예산을 쓰지 않았음 → 그렇게 읽다 어긋나면 보안 예산 없이 다시 읽음.</summary>
         public static void Read(byte[] data)
         {
+            Clear();
+            var list = Parse(data);
+            lock (All) All.AddRange(list);
+            foreach (var rec in list) Mark(rec);
+        }
+
+        /// <summary>읽기(전역 값은 안 건드림): 보안 예산을 넣어 읽고, 어긋나면 보안 예산 없이 다시 읽음.</summary>
+        static List<Record> Parse(byte[] data)
+        {
             try
             {
-                Read(data, true);
+                return Parse(data, true);
             }
             catch (Exception)
             {
-                Read(data, false);
+                return Parse(data, false);
             }
         }
 
-        static void Read(byte[] data, bool security)
+        static List<Record> Parse(byte[] data, bool security)
         {
-            Clear();
+            var list = new List<Record>();
             using var r = new BinaryReader(new MemoryStream(data));
             int format = r.ReadInt32();
             if (format > Format) throw new InvalidDataException($"공연 기록 형식 {format} 은 이 판보다 새것");
@@ -218,37 +243,49 @@ namespace ConcertMod.Data
                 if (format >= 3) rec.Building = r.ReadUInt16();
                 int m = r.ReadInt32();
                 for (int k = 0; k < m; k++) rec.Pops[r.ReadString()] = r.ReadInt32();
-                All.Add(rec);
-                Mark(rec);
+                list.Add(rec);
             }
-            if (r.BaseStream.Position != r.BaseStream.Length) throw new InvalidDataException("공연 기록 뒤에 남은 자료가 있어요");
+            if (SaveRead.More(r, 1)) throw new InvalidDataException("공연 기록 뒤에 남은 자료가 있어요");
+            return list;
         }
 
-        /// <summary>자체 검사: 쓰고 다시 읽어 같은지. 틀리면 설명, 맞으면 null.</summary>
+        /// <summary>
+        /// 자체 검사: 쓰고 다시 읽어 같은지 · 옛 형식(지역 값만 — 실제 기록은 안 건드림) · 끝난 공연 한 번만 적기(이 부분만 전역 기록을 잠시 비웠다 되돌림).
+        /// 틀리면 설명, 맞으면 null.
+        /// </summary>
         public static string SelfCheck()
         {
-            var keep = new List<Record>(All);
+            var a = new Record { Frame = 7, Key = "Band A", Venue = "공연장", StartTicks = 638000000000000000, Ticket = 252360, Reward = 50000, Visitors = 8412, PopDelta = -3, PopAfter = 61, Success = true, Security = 1200, Building = 44 };
+            a.Pops["Band A"] = 61;
+            var got = Parse(Write(new List<Record> { a }));
+            var b = got.Count == 1 ? got[0] : null;
+            if (b == null || b.Frame != 7 || b.Key != a.Key || b.Venue != a.Venue || b.StartTicks != a.StartTicks || b.Ticket != a.Ticket || b.Reward != a.Reward || b.Visitors != a.Visitors
+                || b.PopDelta != a.PopDelta || b.PopAfter != 61 || !b.Success || b.Security != 1200 || b.Building != 44 || b.Pops["Band A"] != 61) return "공연 기록을 쓰고 읽은 값이 달라요";
+            // 형식 1 · 형식 2(보안 예산 있음) · 0.2.0 판(형식 2 인데 보안 예산 없음)
+            got = Parse(OldHistory(1, false, false));
+            b = got.Count == 1 ? got[0] : null;
+            if (b == null || b.Key != "Band A" || b.Visitors != 8412 || b.Security != 0 || b.Building != 0 || b.Pops["Band A"] != 61) return "형식 1 공연 기록을 읽지 못해요";
+            got = Parse(OldHistory(2, true, false));
+            b = got.Count == 1 ? got[0] : null;
+            if (b == null || b.Key != "Band A" || b.Visitors != 8412 || b.Security != 1200 || b.Building != 0 || b.Pops["Band A"] != 61) return "형식 2 공연 기록(보안 예산 있음)을 읽지 못해요";
+            got = Parse(OldHistory(2, false, false));
+            b = got.Count == 1 ? got[0] : null;
+            if (b == null || b.Key != "Band A" || b.Visitors != 8412 || b.Security != 0 || b.Pops["Band A"] != 61) return "0.2.0 판 공연 기록을 읽지 못해요";
+            // 끝에 남은 자료가 있으면 읽지 않음
+            bool threw = false;
+            try { Parse(OldHistory(1, false, true)); }
+            catch (Exception) { threw = true; }
+            if (!threw) return "끝에 남은 자료가 있는 공연 기록을 그냥 읽어요";
+            List<Record> keep;
+            lock (All) keep = new List<Record>(All);
+            var keepSeen = new HashSet<ulong>(seen);
+            var keepSeenOld = new HashSet<uint>(seenOld);
+            var keepPeak = new Dictionary<ushort, int>(peak);
+            bool keepPrimed = primed;
+            List<Show> keepReleased;
+            lock (released) keepReleased = new List<Show>(released);
             try
             {
-                All.Clear();
-                var a = new Record { Frame = 7, Key = "Band A", Venue = "공연장", StartTicks = 638000000000000000, Ticket = 252360, Reward = 50000, Visitors = 8412, PopDelta = -3, PopAfter = 61, Success = true, Security = 1200, Building = 44 };
-                a.Pops["Band A"] = 61;
-                All.Add(a);
-                Read(Write());
-                var b = All.Count == 1 ? All[0] : null;
-                if (b == null || b.Key != a.Key || b.Visitors != a.Visitors || b.PopDelta != a.PopDelta || !b.Success || b.Security != 1200 || b.Building != 44 || b.Pops["Band A"] != 61) return "공연 기록을 쓰고 읽은 값이 달라요";
-                // 0.2.0 판 세이브: 형식 2 인데 보안 예산 없음
-                using (var ms = new MemoryStream())
-                using (var w = new BinaryWriter(ms))
-                {
-                    w.Write(2); w.Write(1);
-                    w.Write(7u); w.Write("Band A"); w.Write("공연장"); w.Write(1L); w.Write(2L); w.Write(3L); w.Write(8412); w.Write(-3); w.Write(61); w.Write(true);
-                    w.Write(1); w.Write("Band A"); w.Write(61);
-                    w.Flush();
-                    Read(ms.ToArray());
-                }
-                b = All.Count == 1 ? All[0] : null;
-                if (b == null || b.Key != "Band A" || b.Visitors != 8412 || b.Pops["Band A"] != 61) return "0.2.0 판 공연 기록을 읽지 못해요";
                 // 지워진 경기장 공연: 같은 시작 프레임은 한 번만 적음(primed 전이라 알림 · 인기 반영 없음)
                 Clear();
                 var gone = new Show { Id = 3, Building = 31, Venue = "경기장", StartFrame = 900, Done = true, Band = new Band { Key = "Band A", Name = "Band A" }, Arrived = 120, Ticket = 5000 };
@@ -265,9 +302,27 @@ namespace ConcertMod.Data
             finally
             {
                 Clear();
-                All.AddRange(keep);
-                foreach (var r in keep) Mark(r);
+                lock (All) All.AddRange(keep);
+                seen.UnionWith(keepSeen);
+                seenOld.UnionWith(keepSeenOld);
+                foreach (var kv in keepPeak) peak[kv.Key] = kv.Value;
+                primed = keepPrimed;
+                lock (released) released.AddRange(keepReleased);
             }
+        }
+
+        /// <summary>자체 검사용 옛 형식 세이브(기록 하나: Band A · 관객 8412): security = 보안 예산 1200 을 씀 · tail = 끝에 1 바이트 더.</summary>
+        static byte[] OldHistory(int format, bool security, bool tail)
+        {
+            using var ms = new MemoryStream();
+            using var w = new BinaryWriter(ms);
+            w.Write(format); w.Write(1);
+            w.Write(7u); w.Write("Band A"); w.Write("공연장"); w.Write(1L); w.Write(2L); w.Write(3L); w.Write(8412); w.Write(-3); w.Write(61); w.Write(true);
+            if (security) w.Write(1200);
+            w.Write(1); w.Write("Band A"); w.Write(61);
+            if (tail) w.Write((byte)0);
+            w.Flush();
+            return ms.ToArray();
         }
     }
 

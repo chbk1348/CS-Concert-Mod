@@ -49,14 +49,27 @@ namespace ConcertMod.Data
         public static readonly List<Band> Bands = new();
         public static readonly List<Show> All = new();
         public static readonly List<NextShow> Next = new();
+        /// <summary>기본 페스티벌 구역(앞서 고른 곳이 남아 있으면 그곳, 없으면 첫 번째 · 없으면 0). 페스티벌 구역 전부는 Festivals.</summary>
         public static ushort Festival;
+
+        /// <summary>페스티벌 구역 전부(본 스레드가 1초마다 새 배열로 갈아 끼움 · 시뮬레이션 스레드도 읽음).</summary>
+        static volatile ushort[] festivals = new ushort[0];
+
+        public static ushort[] Festivals => festivals;
+
+        public static bool IsFestival(ushort b)
+        {
+            if (b == 0) return false;
+            foreach (var f in festivals) if (f == b) return true;
+            return false;
+        }
 
         /// <summary>공연장: 페스티벌 구역, 없으면 기본 공연장(빌린 경기장) · 이름. 다음 공연 · 예매 · 의향서가 여기로.</summary>
         public static ushort Venue;
         public static string VenueName = "";
 
         /// <summary>공연장이 빌린 경기장(페스티벌 구역 없음).</summary>
-        public static bool StadiumVenue => Venue != 0 && Venue != Festival;
+        public static bool StadiumVenue => Venue != 0 && !IsFestival(Venue);
         public static Show Now;
 
         static readonly Dictionary<string, Band> byKey = new();
@@ -132,6 +145,7 @@ namespace ConcertMod.Data
             Lineup.MarkLoaded();
         }
 
+        /// <summary>읽기(본 스레드 1초마다 · 게임에 쓰지 않음): 밴드 인기 · 입장권 · 페스티벌 구역 · 공연장 · 공연 · 다음 공연 목록.</summary>
         public static void Refresh()
         {
             foreach (var b in Bands)
@@ -139,16 +153,15 @@ namespace ConcertMod.Data
                 b.Pop = Lineup.Pop(b.Key);
                 b.Price = b.Info.m_eventAI.m_ticketPrice + Lineup.PriceOffset(b.Key);
             }
-            Festival = FindFestival();
-            AutoLevel3();
+            ScanBuildings();
             Venue = Festival != 0 ? Festival : Rental.Default();
             VenueName = Venue != 0 ? Singleton<BuildingManager>.instance.GetBuildingName(Venue, InstanceID.Empty) ?? "" : "";
             ReadEvents();
-            Lineup.Sync();
             Next.Clear();
-            // 공연장: 페스티벌 구역(또는 기본 경기장) + 빌린 경기장 모두(페스티벌이 있어도 경기장 계획 · 공연이 보이게)
+            // 공연장: 페스티벌 구역 전부(또는 기본 경기장) + 빌린 경기장 모두(페스티벌이 있어도 경기장 계획 · 공연이 보이게)
             var places = new List<ushort>();
             if (Venue != 0) places.Add(Venue);
+            foreach (var f in festivals) if (!places.Contains(f)) places.Add(f);
             foreach (var b in Rental.RentedSnapshot()) if (!places.Contains(b)) places.Add(b);
             // 이미 만들어진(아직 준비 전) 공연이 먼저, 그 뒤 게임이 정할 칸
             foreach (var s in All)
@@ -160,24 +173,33 @@ namespace ConcertMod.Data
             // 경기장: 대관이 자리 잡는 중인 공연(아직 게임 이벤트 전)
             foreach (var b in places)
             {
-                if (b == Festival) continue;
+                if (IsFestival(b)) continue;
                 var rent = Rental.ActiveAt(b);
-                if (rent != null && rent.State == 0 && BandOf(rent.Band) is Band rb) AddNext(rb, SimulationManager.instance.FrameToTime(rent.Start), 0, b, PriceFor(rb, b));
+                if (rent != null && rent.State == RentState.Placing && BandOf(rent.Band) is Band rb) AddNext(rb, SimulationManager.instance.FrameToTime(rent.Start), 0, b, PriceFor(rb, b));
                 // 잡은 계획인데 아직 넣지 못함(경기 중 등): 대관이 넣을 때로 셈한 시각
                 else if (rent == null && Booking.At(b) is Plan sp && sp.Stadium && BandOf(sp.Band) is Band pb) AddNext(pb, Booking.Expect(b, pb, sp.Hour), 0, b, PriceFor(pb, b));
             }
-            int have = 0;
-            foreach (var n in Next) if (n.Building == Festival) have++;
-            if (Festival != 0 && have < future.Length)
+            // 페스티벌마다: 다음 두 공연이 안 차면 게임이 정할 칸
+            foreach (var f in festivals)
             {
-                int n = Singleton<EventManager>.instance.GetFutureEvents(Festival, future, future.Length - have);
-                for (int i = 0; i < n; i++)
+                int have = 0;
+                foreach (var n in Next) if (n.Building == f) have++;
+                if (have >= future.Length) continue;
+                int c = Singleton<EventManager>.instance.GetFutureEvents(f, future, future.Length - have);
+                for (int i = 0; i < c; i++)
                 {
-                    var b = Predict(future[i].m_info, Festival);
-                    if (b != null) AddNext(b, future[i].m_startTime, 0, Festival, PriceFor(b, Festival));
+                    var b = Predict(future[i].m_info, f);
+                    if (b != null) AddNext(b, future[i].m_startTime, 0, f, PriceFor(b, f));
                 }
             }
             Next.Sort((a, b) => a.Start.CompareTo(b.Start));
+        }
+
+        /// <summary>게임에 쓰기(Refresh 뒤): 페스티벌 구역 3단계(시뮬레이션 스레드에 맡김) · 자리 프리팹에 아티스트 인기 · 입장권.</summary>
+        public static void ApplyToGame()
+        {
+            AutoLevel3();
+            Lineup.Sync();
         }
 
         /// <summary>
@@ -219,35 +241,54 @@ namespace ConcertMod.Data
             return s.Band == null ? null : s;
         }
 
-        /// <summary>지난번 3단계로 올리려 한 페스티벌 구역(같은 건물은 한 번만 시도 — 올릴 단계가 없는 애셋이면 다시 안 봄).</summary>
-        static ushort leveled;
+        /// <summary>3단계로 올리려 한 페스티벌 구역(같은 건물은 도시마다 한 번만 시도 — 올릴 단계가 없는 애셋이면 다시 안 봄).</summary>
+        static readonly HashSet<ushort> leveled = new();
 
-        /// <summary>페스티벌 구역을 지으면 바로 3단계로(게임 정보 창 업그레이드와 같은 UpgradeBuilding · 해금 조건 · 비용 없이).</summary>
+        /// <summary>페스티벌 구역을 지으면 바로 3단계로(게임 정보 창 업그레이드와 같은 UpgradeBuilding · 해금 조건 · 비용 없이) — 페스티벌 구역마다.</summary>
         static void AutoLevel3()
         {
-            ushort b = Festival;
-            if (b == 0 || b == leveled) return;
-            leveled = b;
-            Singleton<SimulationManager>.instance.AddAction(() => Safe.Run("페스티벌 3단계", () =>
+            foreach (var f in festivals)
             {
-                var bm = Singleton<BuildingManager>.instance;
-                for (int i = 0; i < 2; i++)
+                if (!leveled.Add(f)) continue;
+                ushort b = f;
+                Singleton<SimulationManager>.instance.AddAction(() => Safe.Run("페스티벌 3단계", () =>
                 {
-                    var info = bm.m_buildings.m_buffer[b].Info;
-                    if (info == null || info.m_class.m_level >= ItemClass.Level.Level3 || !bm.UpgradeBuilding(b, false)) break;
-                    Log.Info("페스티벌 구역 " + b + " → " + bm.m_buildings.m_buffer[b].Info?.m_class.m_level);
-                }
-            }));
+                    var bm = Singleton<BuildingManager>.instance;
+                    for (int i = 0; i < 2; i++)
+                    {
+                        var info = bm.m_buildings.m_buffer[b].Info;
+                        if (info == null || info.m_class.m_level >= ItemClass.Level.Level3 || !bm.UpgradeBuilding(b, false)) break;
+                        Log.Info("페스티벌 구역 " + b + " → " + bm.m_buildings.m_buffer[b].Info?.m_class.m_level);
+                    }
+                }));
+            }
         }
 
-        static ushort FindFestival()
+        /// <summary>ScanBuildings 가 다시 쓰는 페스티벌 구역 목록(매초 새로 만들지 않게).</summary>
+        static readonly List<ushort> found = new();
+
+        /// <summary>
+        /// 1초에 한 번 건물 전체를 한 번만 훑음: 페스티벌 구역 전부 · 기본(Festival, 앞서 고른 곳이 남아 있으면 그대로) · 경기장 목록(Rental.Venues — 그 뒤 Rental.Tick 이 씀).
+        /// 페스티벌 배열은 바뀌었을 때만 새로 갈아 끼움.
+        /// </summary>
+        static void ScanBuildings()
         {
-            var bm = Singleton<BuildingManager>.instance;
-            var buf = bm.m_buildings.m_buffer;
-            if (Festival != 0 && (buf[Festival].m_flags & Building.Flags.Created) != 0 && buf[Festival].Info?.m_buildingAI is FestivalAreaAI) return Festival;
+            var buf = Singleton<BuildingManager>.instance.m_buildings.m_buffer;
+            found.Clear();
+            Rental.Venues.Clear();
             for (int i = 1; i < buf.Length; i++)
-                if ((buf[i].m_flags & Building.Flags.Created) != 0 && buf[i].Info?.m_buildingAI is FestivalAreaAI) return (ushort)i;
-            return 0;
+            {
+                var flags = buf[i].m_flags;
+                if ((flags & Building.Flags.Created) == 0) continue;
+                var info = buf[i].Info;
+                if (info?.m_buildingAI is FestivalAreaAI) found.Add((ushort)i);
+                if ((flags & Building.Flags.Deleted) == 0 && buf[i].m_parentBuilding == 0 && Rental.IsStadium(info)) Rental.Venues.Add((ushort)i);
+            }
+            Festival = found.Contains(Festival) ? Festival : found.Count > 0 ? found[0] : (ushort)0;
+            var old = festivals;
+            bool same = old.Length == found.Count;
+            for (int i = 0; same && i < old.Length; i++) same = old[i] == found[i];
+            if (!same) festivals = found.ToArray();
         }
 
         static void ReadEvents()
@@ -275,9 +316,11 @@ namespace ConcertMod.Data
             All.Clear();
             Next.Clear();
             Festival = 0;
+            festivals = new ushort[0];
             Venue = 0;
             VenueName = "";
             Now = null;
+            leveled.Clear();
         }
     }
 }

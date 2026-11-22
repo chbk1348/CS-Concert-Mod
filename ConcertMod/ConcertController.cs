@@ -28,13 +28,19 @@ namespace ConcertMod
             {
                 if (Time.realtimeSinceStartup - tickAt < TickSeconds) return;
                 tickAt = Time.realtimeSinceStartup;
-                Data.Shows.Refresh();
-                Data.History.Track();
-                Data.Booking.Tick();
-                Data.Letters.Tick();
-                Data.Rental.Tick();
-                Data.Sound.Tick();
-                Data.Tickets.Refresh();
+                // 단계마다 따로 감쌈: 한 단계가 던져도 뒤 단계는 돎(순서는 그대로)
+                // 공연 읽기가 실패한 tick 은 대관 · 예매를 건너뜀(지난 공연 값으로 경기장 넣기 · 예매를 하지 않게)
+                bool read = false, wrote = false;
+                Safe.Run("공연 읽기: 공연", () => { Data.Shows.Refresh(); read = true; });
+                // 게임에 쓰기가 실패해도 예전처럼(한 함수였을 때) 읽기 실패로 봄
+                if (read) Safe.Run("공연 쓰기: 게임", () => { Data.Shows.ApplyToGame(); wrote = true; });
+                read &= wrote;
+                Safe.Run("공연 읽기: 기록", Data.History.Track);
+                Safe.Run("공연 읽기: 예약", () => Data.Booking.Tick(read));
+                Safe.Run("공연 읽기: 의향서", Data.Letters.Tick);
+                if (read) Safe.Run("공연 읽기: 대관", Data.Rental.Tick);
+                Safe.Run("공연 읽기: 소리", Data.Sound.Tick);
+                if (read) Safe.Run("공연 읽기: 예매", Data.Tickets.Refresh);
             };
         }
 
@@ -135,6 +141,7 @@ namespace ConcertMod
             SelfCheck("의향서", Data.Letters.SelfCheck);
             SelfCheck("대관", Data.Rental.SelfCheck);
             SelfCheck("출연표", Data.Lineup.SelfCheck);
+            SelfCheck("예매", Data.Tickets.SelfCheck);
             host = new GameObject("ConcertMod");
             host.AddComponent<ConcertController>();
         }
@@ -168,6 +175,7 @@ namespace ConcertMod
             Data.Rental.Clear();
             Data.Sound.Clear();
             Data.Lineup.Clear();
+            ConcertWindow.ClearPlaces();
             base.OnLevelUnloading();
         }
     }

@@ -250,6 +250,17 @@ namespace ConcertMod.Data
             if (!st2.TryGetValue("BTS", out var s) || s.Pop != 45 || s.Price != -300 || s.Last != 900) return "출연표 아티스트 값을 쓰고 읽은 값이 달라요";
             if (AddPop(45, 10) != 50 || AddPop(-40, -20) != -50) return "인기 변화가 0 ~ 100 밖으로 나가요";
             if (!ev2.TryGetValue(12, out var b) || b.Frame != 777 || b.Artist != "BTS" || b.Price != 4100) return "출연표 공연 아티스트 · 입장권을 쓰고 읽은 값이 달라요";
+            // 형식 1: 공연 입장권 없음 → 0
+            using (var ms = new MemoryStream())
+            using (var w = new BinaryWriter(ms))
+            {
+                w.Write(1);
+                w.Write(1); w.Write("BTS"); w.Write(45); w.Write(-300); w.Write(900u);
+                w.Write(1); w.Write((ushort)12); w.Write(777u); w.Write("BTS");
+                w.Flush();
+                Parse(ms.ToArray(), out st2, out ev2);
+            }
+            if (!st2.TryGetValue("BTS", out s) || s.Pop != 45 || s.Price != -300 || s.Last != 900 || !ev2.TryGetValue(12, out b) || b.Frame != 777 || b.Artist != "BTS" || b.Price != 0) return "형식 1 출연표를 읽지 못해요";
             return null;
         }
     }

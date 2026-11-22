@@ -15,6 +15,9 @@ namespace ConcertMod.Data
             "Taylor Swift", "Ed Sheeran", "Billie Eilish", "Ariana Grande", "Beyoncé", "Bruno Mars", "The Weeknd", "Coldplay", "Dua Lipa", "Harry Styles", "Olivia Rodrigo", "Lady Gaga",
         };
 
+        /// <summary>명단 지역 경계(Names 순서): 한국 0 ~ 15 · 일본 16 ~ 27 · 해외 28 ~.</summary>
+        public const int JapanFrom = 16, WorldFrom = 28;
+
         static readonly Dictionary<string, string> byKey = new();
 
         /// <summary>밴드 프리팹 이름들(정렬)로 이름표를 다시 만듦. 도시를 불러올 때 한 번.</summary>

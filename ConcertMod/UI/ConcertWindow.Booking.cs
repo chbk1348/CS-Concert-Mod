@@ -20,22 +20,12 @@ namespace ConcertMod.UI
         const int Candidates = 5, FirstHour = 12, LastHour = 23, PriceStep = 100;
         const float PriceMin = 0.5f, PriceMax = 2f, PriceFree = 0.3f;
 
-        string pickBand;
-        int pickDays = Booking.MinDays, pickHour = -1;
+        /// <summary>예약 탭 입력 값 · 확인 창(공통부는 ConfirmOpen · CloseConfirm 만 봄).</summary>
+        readonly BookingForm form = new();
 
-        /// <summary>고른 공연장(페스티벌 구역 · 빌린 경기장, 0 = 기본 공연장).</summary>
-        ushort pickVenue;
+        bool ConfirmOpen => form.Confirming;
 
-        /// <summary>잡힌 계획을 덮거나(새 일정) 풀지(게임이 고른 밴드로) 묻는 확인 창.</summary>
-        bool confirming, confirmClear;
-        float confirmAt;
-
-        void Ask(bool clear)
-        {
-            confirming = true;
-            confirmClear = clear;
-            confirmAt = Time.realtimeSinceStartup;
-        }
+        bool CloseConfirm() => form.CloseConfirm();
 
         static string PlaceOf(ushort b)
         {
@@ -43,10 +33,18 @@ namespace ConcertMod.UI
             return n.Length > 0 ? n : "공연장";
         }
 
-        /// <summary>예약할 수 있는 공연장: 페스티벌 구역(또는 기본 경기장) + 빌린 경기장 · 이름(1초마다 다시 만듦 — OnGUI 마다 만들지 않게).</summary>
+        /// <summary>예약할 수 있는 공연장: 기본 공연장 + 페스티벌 구역 전부 + 빌린 경기장 · 이름(1초마다 다시 만듦 — OnGUI 마다 만들지 않게).</summary>
         static readonly List<ushort> places = new();
         static string[] placeNames = new string[0];
         static float placesAt = float.NegativeInfinity;
+
+        /// <summary>도시를 내릴 때: 지난 도시 공연장 번호 · 이름을 비우고 다음에 바로 다시 만듦.</summary>
+        internal static void ClearPlaces()
+        {
+            places.Clear();
+            placeNames = new string[0];
+            placesAt = float.NegativeInfinity;
+        }
 
         static void RefreshPlaces()
         {
@@ -54,6 +52,7 @@ namespace ConcertMod.UI
             placesAt = Time.realtimeSinceStartup;
             places.Clear();
             if (Shows.Venue != 0) places.Add(Shows.Venue);
+            foreach (var f in Shows.Festivals) if (!places.Contains(f)) places.Add(f);
             foreach (var b in Rental.RentedSnapshot()) if (!places.Contains(b)) places.Add(b);
             placeNames = new string[places.Count];
             for (int i = 0; i < places.Count; i++) placeNames[i] = PlaceOf(places[i]);
@@ -63,14 +62,14 @@ namespace ConcertMod.UI
         {
             if (Shows.Venue == 0) return Note(0f, w, "예약", "페스티벌 구역이나 경기장(Match Day · 대학)을 지으면 다음 공연을 잡을 수 있어요");
             RefreshPlaces();
-            if (!places.Contains(pickVenue)) pickVenue = Shows.Venue;
-            var plan = Booking.At(pickVenue);
+            if (!places.Contains(form.Venue)) form.SetVenue(Shows.Venue);
+            var plan = Booking.At(form.Venue);
             // 게임이 고른 밴드: 그 공연장에 계획이 없을 때 다음 공연
-            Band gameBand = plan == null ? Shows.NextAt(pickVenue)?.Band : null;
-            pickBand ??= plan?.Band ?? gameBand?.Key ?? (Shows.Bands.Count > 0 ? Shows.Bands[0].Key : null);
-            var band = Shows.BandOf(pickBand);
+            Band gameBand = plan == null ? Shows.NextAt(form.Venue)?.Band : null;
+            form.Band ??= plan?.Band ?? gameBand?.Key ?? (Shows.Bands.Count > 0 ? Shows.Bands[0].Key : null);
+            var band = Shows.BandOf(form.Band);
             if (band == null) return Note(0f, w, "예약", "밴드가 없어요");
-            if (pickHour < 0) pickHour = plan?.Hour ?? Mathf.RoundToInt(((EventAI)band.Info.m_eventAI).m_startTime);
+            if (form.Hour < 0) form.Hour = plan?.Hour ?? Mathf.RoundToInt(((EventAI)band.Info.m_eventAI).m_startTime);
             float gap = S.Gap, left = Mathf.Round((w - gap) * 7f / 12f), right = w - gap - left;
             float artH = Mathf.Round((left) * C.StageH / C.StageW * 0.82f);
             float candH = C.TicketH - D.Gap * 5f;
@@ -84,21 +83,21 @@ namespace ConcertMod.UI
         }
 
         /// <summary>이 공연 첫 회차 시작: 실제로 잡힐 때와 같은 셈(Booking.Expect).</summary>
-        DateTime FirstStart(Band band) => Booking.Expect(pickVenue, band, pickHour);
+        DateTime FirstStart(Band band) => Booking.Expect(form.Venue, band, form.Hour);
 
         void PosterPlate(Rect r, Band band, Band gameBand, Plan plan, float artH, float candH)
         {
             S.Frame(r);
             var art = new Rect(r.x, r.y, r.width, artH);
             var first = FirstStart(band);
-            C.Stage(art, band.Color, band.Name, PlaceOf(pickVenue));
+            C.Stage(art, band.Color, band.Name, PlaceOf(form.Venue));
             var now = SimulationManager.instance.m_currentGameTime;
             float bx = art.x + S.Pad, by = art.y + S.Pad + Badge.H * 0.5f;
             bx += Badge.Pair(bx, by, "D-" + Math.Max(0, (int)(first.Date - now.Date).TotalDays), band.Color, Draw.On(band.Color)) + D.Gap * 2f;
-            Badge.Pair(bx, by, $"다음 공연 · {pickDays}일 공연", Pal.ConcertScene, Pal.Txt);
+            Badge.Pair(bx, by, $"다음 공연 · {form.Days}일 공연", Pal.ConcertScene, Pal.Txt);
             // 회차 칸: 무대 아래쪽
-            float cw = (art.width - S.Pad * 2f - D.Gap * 2f * (pickDays - 1)) / pickDays, cy = art.yMax - S.Pad - S.RowH;
-            for (int i = 0; i < pickDays; i++)
+            float cw = (art.width - S.Pad * 2f - D.Gap * 2f * (form.Days - 1)) / form.Days, cy = art.yMax - S.Pad - S.RowH;
+            for (int i = 0; i < form.Days; i++)
             {
                 var cell = new Rect(art.x + S.Pad + (cw + D.Gap * 2f) * i, cy, cw, S.RowH);
                 if (Draw.Repaint)
@@ -125,7 +124,7 @@ namespace ConcertMod.UI
             {
                 var b = cands[i];
                 var card = new Rect(x + (kw + D.Gap * 2f) * i, y, kw, candH);
-                bool on = b.Key == pickBand;
+                bool on = b.Key == form.Band;
                 if (Draw.Repaint)
                 {
                     Draw.Round(card, on ? Pal.Inset : S.Plate, Board.BoxRadius * 2f);
@@ -143,7 +142,7 @@ namespace ConcertMod.UI
                     float tw = Badge.Pair(0f, 0f, tag, Pal.Inset, Pal.Txt, false);
                     Badge.Pair(card.xMax - tw - D.Gap * 2f, card.y + D.Gap * 2f + Badge.H * 0.5f, tag, on ? b.Color : Pal.Inset, on ? Draw.On(b.Color) : Pal.Light);
                 }
-                if (Draw.Button(card)) pickBand = b.Key;
+                if (Draw.Button(card)) form.Band = b.Key;
             }
             y += candH + S.Gap;
             float hw = (iw - D.Gap * 4f) / 3f;
@@ -156,27 +155,27 @@ namespace ConcertMod.UI
                 Draw.Round(lenCell, Pal.Inset, Board.BoxRadius * 2f);
                 Draw.Round(hourCell, Pal.Inset, Board.BoxRadius * 2f);
             }
-            int pi = Mathf.Max(0, places.IndexOf(pickVenue));
+            int pi = Mathf.Max(0, places.IndexOf(form.Venue));
             Draw.TextFit(new Rect(placeCell.x + S.Pad, placeCell.y + D.Gap * 2f, placeCell.width, D.LineSub), "공연장", D.FontMin, S.SubInk);
-            if (places.Count > 0) Select.In(new Rect(placeCell.x + S.Pad, placeCell.y + D.Gap * 3f + D.LineSub, placeCell.width - S.Pad * 2f, Segmented.H), placeNames[pi], null, placeNames, null, pi, i => { if (i < places.Count) pickVenue = places[i]; });
+            if (places.Count > 0) Select.In(new Rect(placeCell.x + S.Pad, placeCell.y + D.Gap * 3f + D.LineSub, placeCell.width - S.Pad * 2f, Segmented.H), placeNames[pi], null, placeNames, null, pi, i => { if (i < places.Count) form.SetVenue(places[i]); });
             Draw.TextFit(new Rect(lenCell.x + S.Pad, lenCell.y + D.Gap * 2f, lenCell.width, D.LineSub), "공연 기간", D.FontMin, S.SubInk);
-            Segmented.In(new Rect(lenCell.x + S.Pad, lenCell.y + D.Gap * 3f + D.LineSub, lenCell.width - S.Pad * 2f, Segmented.H), new[] { "1일", "2일", "3일" }, pickDays - 1, i => pickDays = i + 1);
+            Segmented.In(new Rect(lenCell.x + S.Pad, lenCell.y + D.Gap * 3f + D.LineSub, lenCell.width - S.Pad * 2f, Segmented.H), new[] { "1일", "2일", "3일" }, form.Days - 1, i => form.Days = i + 1);
             Draw.TextFit(new Rect(hourCell.x + S.Pad, hourCell.y + D.Gap * 2f, hourCell.width, D.LineSub), "시작 시각", D.FontMin, S.SubInk);
             var hours = new string[LastHour - FirstHour + 1];
             for (int i = 0; i < hours.Length; i++) hours[i] = $"{FirstHour + i:00}:00";
-            int hi = Mathf.Clamp(pickHour - FirstHour, 0, hours.Length - 1);
-            Select.In(new Rect(hourCell.x + S.Pad, hourCell.y + D.Gap * 3f + D.LineSub, hourCell.width - S.Pad * 2f, Segmented.H), hours[hi], null, hours, null, hi, i => pickHour = FirstHour + i);
+            int hi = Mathf.Clamp(form.Hour - FirstHour, 0, hours.Length - 1);
+            Select.In(new Rect(hourCell.x + S.Pad, hourCell.y + D.Gap * 3f + D.LineSub, hourCell.width - S.Pad * 2f, Segmented.H), hours[hi], null, hours, null, hi, i => form.Hour = FirstHour + i);
             y += CellH + D.Gap * 4f + S.Gap;
             float okW = Button.Width(null, "이 일정으로 잡기"), resetW = Button.Width(null, "게임이 고른 밴드로");
             Button.In(new Rect(r.xMax - S.Pad - okW, y, okW, Button.H), null, "이 일정으로 잡기", "고른 공연장 · 밴드 · 기간 · 시각으로 다음 공연을 잡아요", Tone.Primary, click: () =>
             {
                 // 잡힌 계획이 있거나 지울 준비 전 공연이 다 만든 계획의 마지막 회차면 먼저 물음
-                if (Booking.At(pickVenue) == null && !Booking.PendingTail(pickVenue, out _)) Booking.Set(pickBand, pickDays, pickHour, pickVenue);
-                else Ask(false);
+                if (Booking.At(form.Venue) == null && !Booking.PendingTail(form.Venue, out _)) Booking.Set(form.Band, form.Days, form.Hour, form.Venue);
+                else form.Ask(false);
             });
             Button.In(new Rect(r.xMax - S.Pad - okW - D.Gap * 2f - resetW, y, resetW, Button.H), null, "게임이 고른 밴드로", "잡은 계획을 지우고 게임대로 둬요", Tone.Neutral, enabled: plan != null, click: () =>
             {
-                Ask(true); // 직접 잡은 계획 · 의향서 계획 모두 물은 뒤 풀기
+                form.Ask(true); // 직접 잡은 계획 · 의향서 계획 모두 물은 뒤 풀기
             });
             if (plan != null)
                 Draw.TextFit(new Rect(x, y, iw - okW - resetW - S.Pad, Button.H), $"잡힘 · {Artists.Of(plan.Band)} {plan.Days}일 · {plan.Hour:00}:00 · {plan.Done}/{plan.Days}회차를 잡았어요", D.FontMin, Look.PastelSubInk, true);
@@ -191,10 +190,8 @@ namespace ConcertMod.UI
 
         void ClearPlan()
         {
-            Booking.Clear(pickVenue);
-            pickBand = null;
-            pickHour = -1;
-            pickDays = Booking.MinDays;
+            Booking.Clear(form.Venue);
+            form.Reset();
         }
 
         void LineupPlate(Rect r, Plan plan)
@@ -207,10 +204,10 @@ namespace ConcertMod.UI
                 Draw.RoundOutline(box, Pal.Line, S.Radius - S.Pad * 0.5f);
             }
             float y = box.y + S.Pad * 1.5f;
-            Draw.TextFit(new Rect(box.x, y, box.width, D.LineSub), PlaceOf(pickVenue) + " 라인업", D.FontMin, Pal.Light, false, TextAnchor.MiddleCenter);
+            Draw.TextFit(new Rect(box.x, y, box.width, D.LineSub), PlaceOf(form.Venue) + " 라인업", D.FontMin, Pal.Light, false, TextAnchor.MiddleCenter);
             y += D.LineSub + S.Pad;
             var next = new List<NextShow>();
-            foreach (var n in Shows.Next) if (n.Building == pickVenue && next.Count < 2) next.Add(n);
+            foreach (var n in Shows.Next) if (n.Building == form.Venue && next.Count < 2) next.Add(n);
             if (next.Count == 0)
             {
                 Draw.TextFit(new Rect(box.x, y, box.width, S.RowH), "잡힌 공연이 없어요", D.FontBody, S.SubInk, false, TextAnchor.MiddleCenter);
@@ -235,23 +232,23 @@ namespace ConcertMod.UI
         void DrawConfirm(Rect r)
         {
             var e = Event.current;
-            var plan = Booking.At(pickVenue);
+            var plan = Booking.At(form.Venue);
             int tailLetter = 0;
-            bool tail = plan == null && !confirmClear && Booking.PendingTail(pickVenue, out tailLetter);
+            bool tail = plan == null && !form.ConfirmClear && Booking.PendingTail(form.Venue, out tailLetter);
             if (plan == null && !tail)
             {
-                confirming = false;
+                form.Confirming = false;
                 return;
             }
             if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape)
             {
-                confirming = false;
+                form.Confirming = false;
                 e.Use();
                 return;
             }
-            float k = Modal.Ease((Time.realtimeSinceStartup - confirmAt) / Modal.OpenSeconds);
+            float k = Modal.Ease((Time.realtimeSinceStartup - form.ConfirmAt) / Modal.OpenSeconds);
             Modal.Scrim(r, k, D.RadiusWindow);
-            string place = PlaceOf(pickVenue), text, title, ok;
+            string place = PlaceOf(form.Venue), text, title, ok;
             if (tail)
             {
                 title = "잡힌 공연을 바꿀까요?";
@@ -261,18 +258,18 @@ namespace ConcertMod.UI
             else
             {
                 string letter = plan.Letter == 0 ? "" : plan.Done > 0 ? " 이 계획을 만든 의향서는 잡은 회차까지만 남아요." : " 이 계획을 만든 의향서는 철회돼요.";
-                title = confirmClear ? "잡힌 공연을 풀까요?" : "잡힌 공연을 바꿀까요?";
-                ok = confirmClear ? "계획 풀기" : "새 일정으로";
-                text = $"{place}에 잡힌 {Artists.Of(plan.Band)} {plan.Days}일 공연을 " + (confirmClear ? "풀고 게임이 고른 밴드로 돌려요." : "지우고 새 일정으로 잡아요.")
+                title = form.ConfirmClear ? "잡힌 공연을 풀까요?" : "잡힌 공연을 바꿀까요?";
+                ok = form.ConfirmClear ? "계획 풀기" : "새 일정으로";
+                text = $"{place}에 잡힌 {Artists.Of(plan.Band)} {plan.Days}일 공연을 " + (form.ConfirmClear ? "풀고 게임이 고른 밴드로 돌려요." : "지우고 새 일정으로 잡아요.")
                     + $" 지금까지 {plan.Done}/{plan.Days}회차를 잡았어요." + letter;
             }
             int hit = Dialog.In(Dialog.Place(r, text, k), title, text, ok, "취소", false, k);
-            if (hit == 0) confirming = false;
+            if (hit == 0) form.Confirming = false;
             else if (hit == 1)
             {
-                confirming = false;
-                if (confirmClear) ClearPlan();
-                else Booking.Set(pickBand, pickDays, pickHour, pickVenue);
+                form.Confirming = false;
+                if (form.ConfirmClear) ClearPlan();
+                else Booking.Set(form.Band, form.Days, form.Hour, form.Venue);
             }
         }
 

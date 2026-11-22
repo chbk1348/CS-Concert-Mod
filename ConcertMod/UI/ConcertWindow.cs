@@ -48,8 +48,7 @@ namespace ConcertMod.UI
         /// <summary>닫기(Esc · 머리줄): 확인 창이 떠 있으면 그것만 닫음.</summary>
         public void Close()
         {
-            if (confirming) confirming = false;
-            else Visible = false;
+            if (!CloseConfirm()) Visible = false;
         }
 
         public Rect Rect
@@ -99,10 +98,10 @@ namespace ConcertMod.UI
             var e = Event.current;
             var r = Rect;
             // 확인 창: 입력은 먼저 받고 남은 마우스 · 휠 · 키를 써 버림(아래 창이 못 받게), 그림은 맨 위
-            if (confirming && e.type != EventType.Repaint)
+            if (ConfirmOpen && e.type != EventType.Repaint)
             {
                 DrawConfirm(r);
-                if (confirming && (e.isMouse || e.type == EventType.ScrollWheel || e.isKey) && e.type != EventType.Layout) e.Use();
+                if (ConfirmOpen && (e.isMouse || e.type == EventType.ScrollWheel || e.isKey) && e.type != EventType.Layout) e.Use();
             }
             HandleDrag(r);
             r = Rect;
@@ -112,7 +111,7 @@ namespace ConcertMod.UI
             if (WindowHead.In(r, null, title, Mod.Version, HeadSub(), $"{now.Year}년 {now.Month}월 {now.Day}일 {now.Hour:00}:{now.Minute:00}", Shows.Now != null && Shows.Now.Active ? "공연 중" : "", Pal.Primary, "닫기(Esc)")) Close();
             DrawBody(r);
             DrawBar(r);
-            if (confirming && e.type == EventType.Repaint) DrawConfirm(r);
+            if (ConfirmOpen && e.type == EventType.Repaint) DrawConfirm(r);
             if (r.Contains(Draw.Mouse) && (e.type == EventType.MouseDown || e.type == EventType.ScrollWheel)) e.Use();
         }
 
@@ -131,12 +130,24 @@ namespace ConcertMod.UI
         readonly Func<int, float> bookSubBadgeW = i => i == SubLetters && Letters.Waiting > 0 ? Badge.Count(0f, 0f, Letters.Waiting.ToString(), false) : 0f;
         readonly Action<int, Rect> bookSubBadge = (i, c) => Badge.Count(c.x, c.center.y, Letters.Waiting.ToString());
 
+        /// <summary>예매 탭 서브 알약: 예매 공연장(둘 이상일 때만 — 하나면 지금 모습 그대로).</summary>
+        readonly Func<int, string> ticketVenueName = i => i < Tickets.VenueNames.Count ? Tickets.VenueNames[i] : "";
+
+        static bool TicketBar => Tickets.Venues.Count > 1;
+
         void DrawBar(Rect r)
         {
             int sh = SubToolBar.Bar(r, tab == TabBooking, BookSubs.Length, bookSub, bookSubName, bookSubBadgeW, bookSubBadge, id: "concert.booking");
             if (sh >= 0 && sh != bookSub)
             {
                 bookSub = sh;
+                ScrollArea.Reset(BodyId);
+            }
+            int tv = SubToolBar.Bar(r, tab == TabTicket && TicketBar, Tickets.VenueNames.Count, Tickets.Venues.IndexOf(Tickets.Pick), ticketVenueName, id: "concert.ticket");
+            if (tv >= 0 && tv < Tickets.Venues.Count && Tickets.Venues[tv] != Tickets.Pick)
+            {
+                Tickets.Pick = Tickets.Venues[tv];
+                Tickets.Refresh();
                 ScrollArea.Reset(BodyId);
             }
             int hit = Toolbar.Bar(r, TabSettings, tab == TabSettings ? -1 : tab, tabIcon, tabName, TabIcons[TabSettings], Names[TabSettings], tab == TabSettings, out bool fab);
@@ -156,7 +167,7 @@ namespace ConcertMod.UI
             if (Draw.Repaint) Draw.RoundBottom(view, S.WellFill, D.RadiusWindow);
             const float pad = S.WellPad;
             var inner = new Rect(view.x + pad, view.y + pad, view.width - pad * 2f, view.height - pad);
-            ScrollArea.In(inner, BodyId, contentH + (tab == TabBooking ? SubToolBar.SafeH : Toolbar.SafeH), !confirming, _ => contentH = DrawPage(inner.width));
+            ScrollArea.In(inner, BodyId, contentH + (tab == TabBooking || tab == TabTicket && TicketBar ? SubToolBar.SafeH : Toolbar.SafeH), !ConfirmOpen, _ => contentH = DrawPage(inner.width));
         }
 
         float DrawPage(float w)

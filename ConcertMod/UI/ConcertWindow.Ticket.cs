@@ -251,13 +251,13 @@ namespace ConcertMod.UI
             var poster = new Rect(body.x + pad, body.y + pad, posterW, posterH);
             if (Draw.Repaint) Draw.Shadow(poster, S.Pad * 0.75f, 0.18f);
             string date = s.Days > 1 ? $"{s.Start:yyyy. M. d} – {s.Start.AddDays(s.Days - 1):M. d}" : $"{s.Start:yyyy. M. d}";
-            C.Poster(poster, s.Poster, s.Band.Color, s.Band.Name, date, Shows.VenueName, City);
+            C.Poster(poster, s.Poster, s.Band.Color, s.Band.Name, date, s.Venue, City);
             float x = poster.xMax + pad, iw = body.xMax - pad - x, y = poster.y;
             float tagW = Badge.Pair(x, y + Badge.H * 0.5f, "콘서트", Pal.SiteNoteBg, Pal.SiteAccent);
             y += Badge.H + S.Pad;
             Draw.TextFit(new Rect(x, y, iw, C.NameFont * 1.2f), $"{s.Band.Name} LIVE in {City}", C.NameFont * 0.85f, Pal.SiteInk, true);
             y += C.NameFont * 1.2f + S.Pad;
-            string[,] info = { { "장소", Shows.VenueName }, { "공연 기간", date + $" · {s.Days}회차" }, { "공연 시간", $"{s.Start:HH:mm}" }, { "입장권", Price(s.Price) }, { "정원", $"{s.Cap:#,0}석" } };
+            string[,] info = { { "장소", s.Venue }, { "공연 기간", date + $" · {s.Days}회차" }, { "공연 시간", $"{s.Start:HH:mm}" }, { "입장권", Price(s.Price) }, { "정원", $"{s.Cap:#,0}석" } };
             for (int i = 0; i < info.GetLength(0); i++)
             {
                 Draw.TextFit(new Rect(x, y, S.CodeW * 2.4f, D.LineBody + D.Gap), info[i, 0], D.FontBody, Pal.SiteMuted);

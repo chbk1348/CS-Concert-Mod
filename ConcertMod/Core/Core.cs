@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
 
 namespace ConcertMod.Core
 {
@@ -25,7 +24,10 @@ namespace ConcertMod.Core
     {
         const float RepeatSeconds = 60f;
 
-        static readonly Dictionary<string, float> lastLogged = new();
+        /// <summary>자리마다 마지막 기록 시각(초). 시뮬레이션 스레드(AddAction)에서도 불려 lock · 스레드와 상관없는 시계를 씀.</summary>
+        static readonly Dictionary<string, double> lastLogged = new();
+
+        static readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
 
         public static void Run(string where, Action action)
         {
@@ -41,17 +43,16 @@ namespace ConcertMod.Core
 
         public static void Report(string where, Exception e)
         {
-            float now = Time.realtimeSinceStartup;
-            if (!lastLogged.TryGetValue(where, out float last))
+            double now = clock.Elapsed.TotalSeconds;
+            bool first, again = false;
+            lock (lastLogged)
             {
-                lastLogged[where] = now;
-                Log.Error($"{where} 오류(처음 한 번 전체 기록):\n{e}");
+                first = !lastLogged.TryGetValue(where, out double last);
+                if (!first) again = now - last >= RepeatSeconds;
+                if (first || again) lastLogged[where] = now;
             }
-            else if (now - last >= RepeatSeconds)
-            {
-                lastLogged[where] = now;
-                Log.Error($"{where} 오류 계속: {e.GetType().Name}: {e.Message}");
-            }
+            if (first) Log.Error($"{where} 오류(처음 한 번 전체 기록):\n{e}");
+            else if (again) Log.Error($"{where} 오류 계속: {e.GetType().Name}: {e.Message}");
         }
     }
 

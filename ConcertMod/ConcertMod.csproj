@@ -5,7 +5,7 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>CS-Concert-Mod</AssemblyName>
     <RootNamespace>ConcertMod</RootNamespace>
-    <Version>0.4.0</Version>
+    <Version>0.5</Version>
     <Product>Concert Extension</Product>
     <Authors>chbk1348</Authors>
     <Nullable>disable</Nullable>

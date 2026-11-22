@@ -14,8 +14,11 @@ namespace ConcertMod.Data
         public ushort Stadium, Event, AnchorPrev;
         public string Band;
         public uint Start, End, AnchorExpire;
-        public byte State;
+        public RentState State;
     }
+
+    /// <summary>경기장 공연 상태(세이브에 byte 로 남음: 번호를 바꾸지 말 것).</summary>
+    internal enum RentState : byte { Placing = 0, Created = 1 }
 
     /// <summary>지난 경기장 공연(화면 기록): 경기장 · 밴드 · 시작 프레임.</summary>
     internal struct RentLog
@@ -52,7 +55,7 @@ namespace ConcertMod.Data
         public static string WaitReason(ushort b) { lock (gate) return waitWhy.TryGetValue(b, out var s) ? s : null; }
         static readonly object gate = new();
 
-        /// <summary>경기장(경기 이벤트를 받는 건물) — 본 스레드에서 1초마다 다시 찾음.</summary>
+        /// <summary>경기장(경기 이벤트를 받는 건물) — 본 스레드에서 1초마다 Shows.ScanBuildings 가 다시 찾음(Rental.Tick 앞).</summary>
         public static readonly List<ushort> Venues = new();
 
         /// <summary>경기장: 경기 이벤트를 받는 MonumentAI(Match Day · 대학 경기장) 중 관객 자리가 있는 것 — 경기 플래그만 붙은 다른 애셋(택시 회사 등)은 뺌.</summary>
@@ -63,20 +66,17 @@ namespace ConcertMod.Data
         static uint Frames(float hours) => (uint)Mathf.RoundToInt(hours * SimulationManager.DAYTIME_HOUR_TO_FRAME);
 
         /// <summary>본 스레드 1초마다: 경기장 목록 · 시뮬레이션 스레드에 대관 단계.</summary>
-        /// <summary>페스티벌 다음 공연 밴드(본 스레드가 적고 시뮬레이션 스레드가 읽음).</summary>
-        static volatile string festivalNext;
+        /// <summary>페스티벌마다 다음 공연 밴드(본 스레드가 새 배열로 갈아 끼우고 시뮬레이션 스레드가 읽음).</summary>
+        static volatile string[] festivalNext = new string[0];
 
         /// <summary>이 세이브에서 경기장 자동 대관을 이미 했나(세이브에 남음 — 시장이 끈 뒤 다시 빌리지 않게).</summary>
         static volatile bool autoRented;
 
         public static void Tick()
         {
-            festivalNext = Shows.NextAt(Shows.Festival)?.Band.Key;
-            Venues.Clear();
-            var buf = Singleton<BuildingManager>.instance.m_buildings.m_buffer;
-            for (int i = 1; i < buf.Length; i++)
-                if ((buf[i].m_flags & (Building.Flags.Created | Building.Flags.Deleted)) == Building.Flags.Created && buf[i].m_parentBuilding == 0 && IsStadium(buf[i].Info))
-                    Venues.Add((ushort)i);
+            var busy = new List<string>();
+            foreach (var f in Shows.Festivals) if (Shows.NextAt(f)?.Band.Key is string k) busy.Add(k);
+            festivalNext = busy.ToArray();
             // 페스티벌 구역 · 빌린 경기장이 없으면 경기 사이 틈이 있는 첫 경기장을 자동으로 빌려 기본 공연장으로(세이브마다 한 번 — 시장이 끄면 그대로 둠)
             // 경기 기록이 없어 아직 모르는 경기장은 기록이 쌓일 때까지 다시 봄
             if (!autoRented && Shows.Festival == 0 && Default() == 0)
@@ -87,7 +87,7 @@ namespace ConcertMod.Data
                     SetRented(v, true);
                     break;
                 }
-            if (Rented.Count > 0) SimulationManager.instance.AddAction(Step);
+            if (Rented.Count > 0) SimulationManager.instance.AddAction(() => Core.Safe.Run("대관 단계", Step));
         }
 
         public static bool IsRented(ushort b) { lock (gate) return Rented.Contains(b); }
@@ -100,12 +100,12 @@ namespace ConcertMod.Data
             lock (gate) return Rented.Contains(preferred) ? preferred : Rented.Count > 0 ? Rented[0] : (ushort)0;
         }
 
-        public static void SetDefault(ushort b) => SimulationManager.instance.AddAction(() => { lock (gate) preferred = b; });
+        public static void SetDefault(ushort b) => SimulationManager.instance.AddAction(() => Core.Safe.Run("대관: 기본 공연장", () => { lock (gate) preferred = b; }));
 
         /// <summary>아직 만들지 않은 넣기(자리 잡는 중)를 거둠 — 예약 계획을 새로 잡을 때(시뮬레이션 스레드).</summary>
         public static void DropPlanned(ushort b)
         {
-            lock (gate) Active.RemoveAll(r => r.Stadium == b && r.State == 0);
+            lock (gate) Active.RemoveAll(r => r.Stadium == b && r.State == RentState.Placing);
         }
 
         /// <summary>화면용 지난 경기장 공연 사본(시뮬레이션 스레드가 바꾸는 중에도 안전).</summary>
@@ -118,7 +118,7 @@ namespace ConcertMod.Data
         }
 
         /// <summary>빌리기 켜고 끄기(화면 → 시뮬레이션 스레드). 끄면 아직 만들지 않은 공연만 거둠(이미 만든 공연은 그대로 열림).</summary>
-        public static void SetRented(ushort b, bool on) => SimulationManager.instance.AddAction(() =>
+        public static void SetRented(ushort b, bool on) => SimulationManager.instance.AddAction(() => Core.Safe.Run("대관: 빌리기", () =>
         {
             lock (gate)
             {
@@ -126,19 +126,19 @@ namespace ConcertMod.Data
                 if (on) Rented.Add(b);
                 else
                 {
-                    Active.RemoveAll(r => r.Stadium == b && r.State == 0); // 이 경기장 예약 계획은 Booking.Tick 이 풀고 의향서를 철회
+                    Active.RemoveAll(r => r.Stadium == b && r.State == RentState.Placing); // 이 경기장 예약 계획은 Booking.Tick 이 풀고 의향서를 철회
                 }
             }
-        });
+        }));
 
         /// <summary>대관에 쓸 밴드: 인기 1위(페스티벌 다음 공연 밴드 · 다른 경기장 공연 밴드는 뺌).</summary>
         static Band PickBand()
         {
-            string busy = festivalNext;
+            var busy = festivalNext;
             Band best = null;
             foreach (var b in Shows.Bands)
             {
-                if (b.Key == busy) continue;
+                if (Array.IndexOf(busy, b.Key) >= 0) continue;
                 bool used = false;
                 foreach (var r in Active) if (r.Band == b.Key) used = true;
                 if (used) continue;
@@ -147,7 +147,7 @@ namespace ConcertMod.Data
             return best;
         }
 
-        /// <summary>시뮬레이션 스레드: 빌린 경기장마다 틈이 있으면 공연을 넣음 · 끝내 못 만든 넣기는 거둠.</summary>
+        /// <summary>시뮬레이션 스레드: 빌린 경기장마다 틈이 있으면 공연을 넣음 · 끝내 못 만든 넣기는 거둠(거두기 → 경기장마다 살피고 · 정하고 · 함).</summary>
         static void Step()
         {
             var em = Singleton<EventManager>.instance;
@@ -155,60 +155,129 @@ namespace ConcertMod.Data
             uint now = Singleton<SimulationManager>.instance.m_currentFrameIndex;
             lock (gate)
             {
-                Rented.RemoveAll(b => !IsStadium(bm.m_buildings.m_buffer[b].Info));
-                // 끝내 못 만든 넣기 · 다른 길로 사라진 공연(건물 철거 등)은 거둠
-                Active.RemoveAll(r => r.State == 0 ? now > r.Start : em.m_events.m_buffer[r.Event].Info != Shows.BandOf(r.Band)?.Info || (em.m_events.m_buffer[r.Event].m_flags & EventData.Flags.Deleted) != 0);
-                // 다음 경기 없이 정리까지 끝난 공연(경기가 없는 경기장): 기록만 남기고 거둠(공연은 게임 기록대로 History 가 적음) → 다음 회차를 넣을 수 있게
-                for (int i = Active.Count - 1; i >= 0; i--)
-                {
-                    var done = Active[i];
-                    if (done.State != 1 || !em.m_events.m_buffer[done.Event].IsComplete) continue;
-                    Active.RemoveAt(i);
-                    Log.Insert(0, new RentLog { Stadium = done.Stadium, Band = done.Band, Start = done.Start });
-                    if (Log.Count > KeepLog) Log.RemoveAt(Log.Count - 1);
-                }
+                Prune(em, bm, now);
                 waitWhy.Clear();
                 foreach (ushort s in Rented)
                 {
-                    if (ActiveAtLocked(s) != null) continue;
-                    // 이 경기장에 잡은 예약 계획이면 그 밴드 · 시각(회차마다 다음 경기 앞에 하나씩)
-                    var plan = Booking.At(s);
-                    bool planned = plan != null && plan.Ready && plan.Stadium && plan.Done < plan.Days;
-                    if (!planned)
-                    {
-                        int room = Room(s);
-                        if (room == RoomTight) { waitWhy[s] = "경기를 쉬지 않아 자동 공연은 넣지 않아요"; continue; }
-                        if (room == RoomUnknown) { waitWhy[s] = "경기 기록이 쌓이면 자동 공연을 봐요"; continue; }
-                    }
-                    ushort head = bm.m_buildings.m_buffer[s].m_eventIndex;
-                    // 확정한 공연인데 다음 경기가 없음(경기가 없거나 끝난 경기만): 밀 경기 없이 바로 넣음 → 게임이 다음 이벤트를 정할 때(CheckEvents · FindNextEventInfo) 이 공연을 만듦
-                    if (planned && (head == 0 || (em.m_events.m_buffer[head].m_flags & (EventData.Flags.Completed | EventData.Flags.Cancelled)) != 0))
-                    {
-                        if (Shows.BandOf(plan.Band)?.Info?.m_eventAI is not ConcertAI pai) { waitWhy[s] = "공연할 밴드가 없어요"; continue; }
-                        uint ps = StartAt(now, pai, plan.Hour);
-                        Active.Add(new Rent { Stadium = s, Band = plan.Band, Start = ps, End = ps + Frames(pai.m_eventDuration + pai.m_disorganizeDuration), AnchorPrev = head, AnchorExpire = head != 0 ? em.m_events.m_buffer[head].m_expireFrame : 0u });
-                        Core.Log.Info($"경기장 확정 공연(다음 경기 없음): {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(plan.Band)} · {Singleton<SimulationManager>.instance.FrameToTime(ps):MM-dd HH:mm}");
-                        continue;
-                    }
-                    if (head == 0) { waitWhy[s] = "게임이 다음 경기를 잡으면 그 앞 틈을 봐요"; continue; }
-                    ref var match = ref em.m_events.m_buffer[head];
-                    if (match.m_flags != EventData.Flags.Created) { waitWhy[s] = "경기 중이에요 · 끝나고 다음 경기 앞 틈을 봐요"; continue; }
-                    if (match.Info?.m_eventAI is not SportMatchAI mai) continue;
-                    var band = planned ? Shows.BandOf(plan.Band) : PickBand();
-                    if (band?.Info?.m_eventAI is not ConcertAI cai) { waitWhy[s] = "공연할 밴드가 없어요"; continue; }
-                    uint start = StartAt(now, cai, planned ? plan.Hour : Mathf.RoundToInt(cai.m_startTime));
-                    uint end = start + Frames(cai.m_eventDuration + cai.m_disorganizeDuration);
-                    // 확정한 공연(의향서 · 예약 계획)은 틈을 기다리지 않음: 다음 경기를 지우면 게임이 공연 뒤에 다시 잡음(경기가 공연 뒤로 밀림)
-                    if (!planned && end + Frames(MarginHours) > match.m_startFrame - Frames(mai.m_prepareDuration))
-                    {
-                        waitWhy[s] = $"다음 경기({Singleton<SimulationManager>.instance.FrameToTime(match.m_startFrame):M월 d일})까지 틈이 짧아 기다려요";
-                        continue;
-                    }
+                    var f = Look(s, em, bm, now);
+                    Apply(s, Decide(f), f, em, bm);
+                }
+            }
+        }
+
+        /// <summary>거두기(lock 안): 경기장이 아니게 된 곳 · 끝내 못 만든 넣기 · 다른 길로 사라진 공연 · 다음 경기 없이 정리까지 끝난 공연(기록만 남김).</summary>
+        static void Prune(EventManager em, BuildingManager bm, uint now)
+        {
+            Rented.RemoveAll(b => !IsStadium(bm.m_buildings.m_buffer[b].Info));
+            // 끝내 못 만든 넣기 · 다른 길로 사라진 공연(건물 철거 등)은 거둠
+            Active.RemoveAll(r => r.State == RentState.Placing ? now > r.Start : em.m_events.m_buffer[r.Event].Info != Shows.BandOf(r.Band)?.Info || (em.m_events.m_buffer[r.Event].m_flags & EventData.Flags.Deleted) != 0);
+            // 다음 경기 없이 정리까지 끝난 공연(경기가 없는 경기장): 기록만 남기고 거둠(공연은 게임 기록대로 History 가 적음) → 다음 회차를 넣을 수 있게
+            for (int i = Active.Count - 1; i >= 0; i--)
+            {
+                var done = Active[i];
+                if (done.State != RentState.Created || !em.m_events.m_buffer[done.Event].IsComplete) continue;
+                Active.RemoveAt(i);
+                Log.Insert(0, new RentLog { Stadium = done.Stadium, Band = done.Band, Start = done.Start });
+                if (Log.Count > KeepLog) Log.RemoveAt(Log.Count - 1);
+            }
+        }
+
+        /// <summary>경기장 맨 앞 이벤트: 없음 · 끝남(완료 · 취소) · 준비 전 · 그 밖(준비 · 경기 중).</summary>
+        internal enum HeadKind { None, Ended, Waiting, Busy }
+
+        /// <summary>경기장 하나에 이번 단계에서 할 일: 건너뜀 · 기다림(까닭마다) · 다음 경기 없이 바로 넣기 · 다음 경기를 지우고 넣기.</summary>
+        internal enum StepDo { Skip, WaitTight, WaitUnknown, WaitNoBand, WaitNoMatch, WaitBusy, WaitShortGap, PlaceNow, ReplaceMatch }
+
+        /// <summary>경기장 하나를 살핀 값: Decide 는 위 판단 값만 봄 · 아래는 Apply 가 씀.</summary>
+        internal struct StepFacts
+        {
+            public bool Busy, Planned, IsMatch, HasBand;
+            public int Room;
+            public HeadKind Head;
+            /// <summary>공연 정리 끝 + 여유 · 다음 경기 준비 시작(프레임).</summary>
+            public uint EndMargin, MatchPrep;
+
+            public string Band, PlanBand;
+            public uint Start, End;
+            public ushort HeadId;
+        }
+
+        /// <summary>살피기(lock 안 · 게임 값을 읽기만): 예약 계획 · 틈 · 맨 앞 이벤트 · 넣을 밴드와 시각.</summary>
+        static StepFacts Look(ushort s, EventManager em, BuildingManager bm, uint now)
+        {
+            var f = new StepFacts { Busy = ActiveAtLocked(s) != null };
+            if (f.Busy) return f;
+            // 이 경기장에 잡은 예약 계획이면 그 밴드 · 시각(회차마다 다음 경기 앞에 하나씩)
+            var plan = Booking.At(s);
+            f.Planned = plan != null && plan.Ready && plan.Stadium && plan.Done < plan.Days;
+            if (!f.Planned) f.Room = Room(s);
+            f.HeadId = bm.m_buildings.m_buffer[s].m_eventIndex;
+            if (f.HeadId != 0)
+            {
+                ref var match = ref em.m_events.m_buffer[f.HeadId];
+                f.Head = (match.m_flags & (EventData.Flags.Completed | EventData.Flags.Cancelled)) != 0 ? HeadKind.Ended : match.m_flags == EventData.Flags.Created ? HeadKind.Waiting : HeadKind.Busy;
+                if (match.Info?.m_eventAI is SportMatchAI mai)
+                {
+                    f.IsMatch = true;
+                    f.MatchPrep = match.m_startFrame - Frames(mai.m_prepareDuration);
+                }
+            }
+            f.PlanBand = plan?.Band;
+            var band = f.Planned ? Shows.BandOf(plan.Band) : PickBand();
+            if (band?.Info?.m_eventAI is ConcertAI cai)
+            {
+                f.HasBand = true;
+                f.Band = band.Key;
+                f.Start = StartAt(now, cai, f.Planned ? plan.Hour : Mathf.RoundToInt(cai.m_startTime));
+                f.End = f.Start + Frames(cai.m_eventDuration + cai.m_disorganizeDuration);
+                f.EndMargin = f.End + Frames(MarginHours);
+            }
+            return f;
+        }
+
+        /// <summary>정하기(게임 값 없이): 살핀 값으로 이번 단계에 할 일.</summary>
+        internal static StepDo Decide(StepFacts f)
+        {
+            if (f.Busy) return StepDo.Skip;
+            if (!f.Planned && f.Room == RoomTight) return StepDo.WaitTight;
+            if (!f.Planned && f.Room == RoomUnknown) return StepDo.WaitUnknown;
+            // 확정한 공연인데 다음 경기가 없음(경기가 없거나 끝난 경기만): 밀 경기 없이 바로 넣음 → 게임이 다음 이벤트를 정할 때(CheckEvents · FindNextEventInfo) 이 공연을 만듦
+            if (f.Planned && (f.Head == HeadKind.None || f.Head == HeadKind.Ended)) return f.HasBand ? StepDo.PlaceNow : StepDo.WaitNoBand;
+            if (f.Head == HeadKind.None) return StepDo.WaitNoMatch;
+            if (f.Head != HeadKind.Waiting) return StepDo.WaitBusy;
+            if (!f.IsMatch) return StepDo.Skip;
+            if (!f.HasBand) return StepDo.WaitNoBand;
+            // 확정한 공연(의향서 · 예약 계획)은 틈을 기다리지 않음: 다음 경기를 지우면 게임이 공연 뒤에 다시 잡음(경기가 공연 뒤로 밀림)
+            if (!f.Planned && f.EndMargin > f.MatchPrep) return StepDo.WaitShortGap;
+            return StepDo.ReplaceMatch;
+        }
+
+        /// <summary>하기(lock 안): 기다리는 까닭 · 공연 넣기 · 다음 경기 지우기 · 로그.</summary>
+        static void Apply(ushort s, StepDo d, StepFacts f, EventManager em, BuildingManager bm)
+        {
+            var sim = Singleton<SimulationManager>.instance;
+            switch (d)
+            {
+                case StepDo.WaitTight: waitWhy[s] = "경기를 쉬지 않아 자동 공연은 넣지 않아요"; break;
+                case StepDo.WaitUnknown: waitWhy[s] = "경기 기록이 쌓이면 자동 공연을 봐요"; break;
+                case StepDo.WaitNoBand: waitWhy[s] = "공연할 밴드가 없어요"; break;
+                case StepDo.WaitNoMatch: waitWhy[s] = "게임이 다음 경기를 잡으면 그 앞 틈을 봐요"; break;
+                case StepDo.WaitBusy: waitWhy[s] = "경기 중이에요 · 끝나고 다음 경기 앞 틈을 봐요"; break;
+                case StepDo.WaitShortGap:
+                    waitWhy[s] = $"다음 경기({sim.FrameToTime(em.m_events.m_buffer[f.HeadId].m_startFrame):M월 d일})까지 틈이 짧아 기다려요";
+                    break;
+                case StepDo.PlaceNow:
+                    Active.Add(new Rent { Stadium = s, Band = f.PlanBand, Start = f.Start, End = f.End, AnchorPrev = f.HeadId, AnchorExpire = f.HeadId != 0 ? em.m_events.m_buffer[f.HeadId].m_expireFrame : 0u });
+                    Core.Log.Info($"경기장 확정 공연(다음 경기 없음): {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(f.PlanBand)} · {sim.FrameToTime(f.Start):MM-dd HH:mm}");
+                    break;
+                case StepDo.ReplaceMatch:
+                {
+                    ref var match = ref em.m_events.m_buffer[f.HeadId];
                     ushort prev = match.m_nextBuildingEvent;
-                    var r = new Rent { Stadium = s, Band = band.Key, Start = start, End = end, AnchorPrev = prev, AnchorExpire = prev != 0 ? em.m_events.m_buffer[prev].m_expireFrame : 0u };
-                    Active.Add(r);
-                    em.ReleaseEvent(head);
-                    (planned ? (Action<string>)Core.Log.Info : Core.Log.Detail)($"경기장 {(planned ? "확정 공연" : "대관")}: {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(band.Key)} · {Singleton<SimulationManager>.instance.FrameToTime(start):MM-dd HH:mm} (다음 경기 {Singleton<SimulationManager>.instance.FrameToTime(match.m_startFrame):MM-dd HH:mm})");
+                    Active.Add(new Rent { Stadium = s, Band = f.Band, Start = f.Start, End = f.End, AnchorPrev = prev, AnchorExpire = prev != 0 ? em.m_events.m_buffer[prev].m_expireFrame : 0u });
+                    em.ReleaseEvent(f.HeadId);
+                    (f.Planned ? (Action<string>)Core.Log.Info : Core.Log.Detail)($"경기장 {(f.Planned ? "확정 공연" : "대관")}: {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(f.Band)} · {sim.FrameToTime(f.Start):MM-dd HH:mm} (다음 경기 {sim.FrameToTime(match.m_startFrame):MM-dd HH:mm})");
+                    break;
                 }
             }
         }
@@ -221,7 +290,7 @@ namespace ConcertMod.Data
         {
             uint now = Singleton<SimulationManager>.instance.m_currentFrameIndex;
             var r = ActiveAt(b);
-            if (r != null) return Math.Max(now, r.State == 1 ? r.Start + Frames(cai.m_eventDuration) : r.Start);
+            if (r != null) return Math.Max(now, r.State == RentState.Created ? r.Start + Frames(cai.m_eventDuration) : r.Start);
             ushort head = Singleton<BuildingManager>.instance.m_buildings.m_buffer[b].m_eventIndex;
             if (head == 0) return now;
             ref var e = ref Singleton<EventManager>.instance.m_events.m_buffer[head];
@@ -274,7 +343,7 @@ namespace ConcertMod.Data
             Rent r;
             lock (gate) r = ActiveAtLocked(building);
             if (r == null) return;
-            if (r.State == 0 && prevExpire == r.AnchorExpire)
+            if (r.State == RentState.Placing && prevExpire == r.AnchorExpire)
             {
                 var band = Shows.BandOf(r.Band)?.Info;
                 if (band == null) return;
@@ -282,7 +351,7 @@ namespace ConcertMod.Data
                 nextStart = r.Start;
                 result = true;
             }
-            else if (r.State == 1 && prev?.m_eventAI is ConcertAI && prevExpire == r.End)
+            else if (r.State == RentState.Created && prev?.m_eventAI is ConcertAI && prevExpire == r.End)
             {
                 // 같은 메서드를 앞 경기로 다시 부름(이번엔 위 두 갈래에 걸리지 않음) → 빌리기 전과 같은 다음 경기
                 var em = Singleton<EventManager>.instance;
@@ -297,13 +366,13 @@ namespace ConcertMod.Data
             lock (gate)
             {
                 var r = ActiveAtLocked(data.m_building);
-                if (r == null || r.State != 0 || data.Info == null || data.Info != Shows.BandOf(r.Band)?.Info) return;
+                if (r == null || r.State != RentState.Placing || data.Info == null || data.Info != Shows.BandOf(r.Band)?.Info) return;
                 data.m_startFrame = r.Start;
                 data.m_expireFrame = r.End;
                 int price = Booking.OnStadiumShow(r.Stadium, r.Band, r.Start);
                 Lineup.Bind(eventId, r.Start, Shows.BandOf(r.Band)?.Key, price);
                 r.Event = eventId;
-                r.State = 1;
+                r.State = RentState.Created;
             }
         }
 
@@ -318,7 +387,7 @@ namespace ConcertMod.Data
             {
                 var r = ActiveAtLocked(data.m_building);
                 var em = Singleton<EventManager>.instance;
-                if (r == null || r.State != 1 || r.Event != data.m_nextBuildingEvent)
+                if (r == null || r.State != RentState.Created || r.Event != data.m_nextBuildingEvent)
                 {
                     // 거둔 뒤 생긴 경기(다음 경기 없던 경기장): 앞 공연들을 정상 흐름처럼 기록 넘김 · 지우고 그 앞 경기를 앞 이벤트로(공연의 상금 · 전적 · 입장권 · 색을 이어받지 않게)
                     if (ai is SportMatchAI && Rented.Contains(data.m_building))
@@ -366,6 +435,7 @@ namespace ConcertMod.Data
             }
             Venues.Clear();
             autoRented = false;
+            festivalNext = new string[0];
         }
 
         /// <summary>세이브 내용(쓰고 읽기 · 자체 검사가 전역 값을 건드리지 않게 따로 묶음).</summary>
@@ -400,7 +470,7 @@ namespace ConcertMod.Data
                 w.Write(r.Event);
                 w.Write(r.AnchorPrev);
                 w.Write(r.AnchorExpire);
-                w.Write(r.State);
+                w.Write((byte)r.State);
             }
             w.Write(v.Log.Count);
             foreach (var l in v.Log)
@@ -439,7 +509,7 @@ namespace ConcertMod.Data
             for (int i = 0; i < n; i++) v.Rented.Add(r.ReadUInt16());
             n = r.ReadInt32();
             for (int i = 0; i < n; i++)
-                v.Active.Add(new Rent { Stadium = r.ReadUInt16(), Band = r.ReadString(), Start = r.ReadUInt32(), End = r.ReadUInt32(), Event = r.ReadUInt16(), AnchorPrev = r.ReadUInt16(), AnchorExpire = r.ReadUInt32(), State = r.ReadByte() });
+                v.Active.Add(new Rent { Stadium = r.ReadUInt16(), Band = r.ReadString(), Start = r.ReadUInt32(), End = r.ReadUInt32(), Event = r.ReadUInt16(), AnchorPrev = r.ReadUInt16(), AnchorExpire = r.ReadUInt32(), State = (RentState)r.ReadByte() });
             n = r.ReadInt32();
             for (int i = 0; i < n; i++) v.Log.Add(new RentLog { Stadium = r.ReadUInt16(), Band = r.ReadString(), Start = r.ReadUInt32() });
             if (format >= 2) v.Preferred = r.ReadUInt16();
@@ -453,12 +523,59 @@ namespace ConcertMod.Data
             if (!Fits(100, 300, 200) || Fits(100, 299, 200) || Fits(300, 100, 1)) return "경기 사이 틈 판단이 틀려요";
             var src = new Saved { Preferred = 31, AutoRented = true };
             src.Rented.Add(31);
-            src.Active.Add(new Rent { Stadium = 31, Band = "Band A", Start = 100, End = 200, Event = 7, AnchorPrev = 5, AnchorExpire = 90, State = 1 });
+            src.Active.Add(new Rent { Stadium = 31, Band = "Band A", Start = 100, End = 200, Event = 7, AnchorPrev = 5, AnchorExpire = 90, State = RentState.Created });
+            src.Active.Add(new Rent { Stadium = 32, Band = "Band C", State = RentState.Placing });
             src.Log.Add(new RentLog { Stadium = 31, Band = "Band B", Start = 50 });
             var v = Parse(Write(src));
-            var a = v.Active.Count == 1 ? v.Active[0] : null;
-            return v.Rented.Count != 1 || v.Rented[0] != 31 || a == null || a.Band != "Band A" || a.Start != 100 || a.End != 200 || a.Event != 7 || a.AnchorPrev != 5 || a.AnchorExpire != 90 || a.State != 1
-                || v.Log.Count != 1 || v.Log[0].Band != "Band B" || v.Log[0].Start != 50 || v.Preferred != 31 || !v.AutoRented ? "대관을 쓰고 읽은 값이 달라요" : null;
+            var a = v.Active.Count == 2 ? v.Active[0] : null;
+            if (v.Rented.Count != 1 || v.Rented[0] != 31 || a == null || a.Band != "Band A" || a.Start != 100 || a.End != 200 || a.Event != 7 || a.AnchorPrev != 5 || a.AnchorExpire != 90 || a.State != RentState.Created
+                || v.Active[1].State != RentState.Placing || v.Log.Count != 1 || v.Log[0].Band != "Band B" || v.Log[0].Start != 50 || v.Preferred != 31 || !v.AutoRented) return "대관을 쓰고 읽은 값이 달라요";
+            // 세이브 byte 상태 번호: 0 넣는 중 · 1 만들어짐
+            var rs = new[] { RentState.Placing, RentState.Created };
+            for (int i = 0; i < rs.Length; i++) if ((byte)rs[i] != i) return "경기장 공연 상태 번호가 세이브와 달라요";
+            // 형식 1(기본 공연장 · 자동 대관 없음) · 형식 2(자동 대관 없음): 상태 byte 0 · 1 그대로
+            for (int f = 1; f <= 2; f++)
+            {
+                v = Parse(OldRental(f));
+                if (v.Rented.Count != 1 || v.Rented[0] != 31 || v.Active.Count != 2 || v.Active[0].State != RentState.Placing || v.Active[1].State != RentState.Created || v.Active[1].Band != "Band A"
+                    || v.Log.Count != 1 || v.Log[0].Band != "Band B" || v.Preferred != (f >= 2 ? 31 : 0) || v.AutoRented) return $"형식 {f} 대관을 읽지 못해요";
+            }
+            // 경기장마다 할 일 진리표: 확정 계획 × 맨 앞 이벤트(없음 · 끝남 · 준비 전 · 경기 중) × 틈(Room 3값 · 짧음 · 충분) × 밴드
+            StepFacts F(bool planned = false, int room = RoomFree, HeadKind head = HeadKind.Waiting, bool match = true, bool band = true, uint end = 100, uint prep = 200, bool busy = false) =>
+                new() { Planned = planned, Room = room, Head = head, IsMatch = match, HasBand = band, EndMargin = end, MatchPrep = prep, Busy = busy };
+            var facts = new[]
+            {
+                F(busy: true), F(room: RoomTight), F(room: RoomUnknown),
+                F(planned: true, room: RoomTight, head: HeadKind.None), F(planned: true, room: RoomUnknown, head: HeadKind.Ended), F(planned: true, head: HeadKind.None, band: false),
+                F(head: HeadKind.None), F(head: HeadKind.Ended), F(head: HeadKind.Busy), F(planned: true, head: HeadKind.Busy),
+                F(match: false), F(band: false), F(end: 201), F(end: 200), F(), F(planned: true, end: 999),
+            };
+            var want = new[]
+            {
+                StepDo.Skip, StepDo.WaitTight, StepDo.WaitUnknown,
+                StepDo.PlaceNow, StepDo.PlaceNow, StepDo.WaitNoBand,
+                StepDo.WaitNoMatch, StepDo.WaitBusy, StepDo.WaitBusy, StepDo.WaitBusy,
+                StepDo.Skip, StepDo.WaitNoBand, StepDo.WaitShortGap, StepDo.ReplaceMatch, StepDo.ReplaceMatch, StepDo.ReplaceMatch,
+            };
+            for (int i = 0; i < facts.Length; i++)
+                if (Decide(facts[i]) != want[i]) return $"경기장 할 일 판단이 틀려요({i}번: {Decide(facts[i])} ≠ {want[i]})";
+            return null;
+        }
+
+        /// <summary>자체 검사용 옛 형식 세이브(빌린 경기장 31 · 넣는 중 · 만들어진 공연 · 기록 하나).</summary>
+        static byte[] OldRental(int format)
+        {
+            using var ms = new MemoryStream();
+            using var w = new BinaryWriter(ms);
+            w.Write(format);
+            w.Write(1); w.Write((ushort)31);
+            w.Write(2);
+            w.Write((ushort)31); w.Write("Band C"); w.Write(10u); w.Write(20u); w.Write((ushort)0); w.Write((ushort)0); w.Write(0u); w.Write((byte)0);
+            w.Write((ushort)31); w.Write("Band A"); w.Write(100u); w.Write(200u); w.Write((ushort)7); w.Write((ushort)5); w.Write(90u); w.Write((byte)1);
+            w.Write(1); w.Write((ushort)31); w.Write("Band B"); w.Write(50u);
+            if (format >= 2) w.Write((ushort)31);
+            w.Flush();
+            return ms.ToArray();
         }
     }
 
