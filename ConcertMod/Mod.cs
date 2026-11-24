@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.5.1";
+        public const string Version = "0.5.2";
 
         public override string BaseName => "Concert Extension";
 
@@ -27,6 +27,9 @@ namespace ConcertMod
         static readonly CSCommonRelease[] Changelog =
         {
             new(Version, "2026-11-24",
+                "[개선] 창을 처음 열 때 끊김을 줄였어요: 아이콘 · 그림 굽기를 여러 프레임에 나눠 하고, 쌓인 글 폭 기억은 넘치면 비워요(정본 CSCommonUX 3.1.1)",
+                "[개선] 차트 탭 순위 · 연속 1위를 기록이 바뀔 때만 다시 셈해 차트 탭을 열어 둔 동안 끊김이 줄었어요"),
+            new("0.5.1", "2026-11-24",
                 "[변경] 성능 평균 줄(60초마다)은 설정 '자세한 로그'를 켰을 때만 남겨요 · 한 번 50ms 넘는 멈춤 줄은 늘 남기고 GC 횟수 · 힙 크기를 같이 적어요(정본 CSCommonUX)",
                 "[변경] 공연 계획 풂 · 의향서(승인 대기 · 일부만 잡힘 · 철회 · 승인 · 확정) · 경기장 확정 공연 · 페스티벌 구역 단계 줄은 자세한 로그를 켰을 때만 남겨요"),
             new("0.5", "2026-11-22",
