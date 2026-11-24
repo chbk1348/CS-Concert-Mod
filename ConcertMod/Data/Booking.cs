@@ -343,7 +343,7 @@ namespace ConcertMod.Data
         {
             SetState(p, PlanState.Dropped);
             Put(p, null);
-            Core.Log.Info($"공연 계획 풂: {Artists.Of(p.Band)} · {p.Done}/{p.Days}회차 · {why}");
+            Core.Log.Detail($"공연 계획 풂: {Artists.Of(p.Band)} · {p.Done}/{p.Days}회차 · {why}");
             if (p.Letter != 0) Letters.Stop(p.Letter, why, notify, p.Done);
             else if (notify) CSCommonUX.Toast.Show($"{Artists.Of(p.Band)} 공연 계획을 풀었어요 · {why}");
         }

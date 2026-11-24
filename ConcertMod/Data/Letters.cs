@@ -96,7 +96,7 @@ namespace ConcertMod.Data
                 if (why != null)
                 {
                     WaitWhy[l.Id] = why;
-                    if (logDay) Core.Log.Info($"의향서 승인 대기: {Artists.Of(l.Band)} · {why}");
+                    if (logDay) Core.Log.Detail($"의향서 승인 대기: {Artists.Of(l.Band)} · {why}");
                     continue;
                 }
                 Booking.Set(l.Band, l.Days, l.Hour, venue, l.Price, l.Id);
@@ -149,7 +149,7 @@ namespace ConcertMod.Data
                     if (l.Id != id) continue;
                     if (!KeepsBooked(l, ref opened)) { Withdraw(l, why, notify); return; }
                     l.Why = $"{l.Days}회차 중 {opened}회차만 잡혔어요 · {why}";
-                    Core.Log.Info($"의향서 일부만 잡힘: {Artists.Of(l.Band)} · {l.Why}");
+                    Core.Log.Detail($"의향서 일부만 잡힘: {Artists.Of(l.Band)} · {l.Why}");
                     if (notify) CSCommonUX.Toast.Show($"{Artists.Of(l.Band)} 공연이 {opened}회차까지만 잡혔어요 · {why}");
                     return;
                 }
@@ -180,15 +180,15 @@ namespace ConcertMod.Data
             switch (to)
             {
                 case LetterState.Withdrawn when why != null:
-                    Core.Log.Info($"의향서 철회: {Artists.Of(l.Band)} · {why}");
+                    Core.Log.Detail($"의향서 철회: {Artists.Of(l.Band)} · {why}");
                     if (notify) CSCommonUX.Toast.Show($"{Artists.Of(l.Band)} 의향서를 철회했어요 · {why}");
                     break;
                 case LetterState.Approved:
                     l.Deadline = default; // 승인 기한은 그 공연장 줄 맨 앞이 되면 Tick 이 셈
-                    Core.Log.Info($"의향서 승인: {Artists.Of(l.Band)} · {Name(VenueOf(l))}");
+                    Core.Log.Detail($"의향서 승인: {Artists.Of(l.Band)} · {Name(VenueOf(l))}");
                     break;
                 case LetterState.Booked:
-                    Core.Log.Info($"의향서 확정: {Artists.Of(l.Band)} · {Name(VenueOf(l))} · {l.Days}일 {l.Hour:00}:00");
+                    Core.Log.Detail($"의향서 확정: {Artists.Of(l.Band)} · {Name(VenueOf(l))} · {l.Days}일 {l.Hour:00}:00");
                     break;
             }
         }

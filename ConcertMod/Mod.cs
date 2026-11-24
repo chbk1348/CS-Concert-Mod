@@ -10,7 +10,7 @@ namespace ConcertMod
     /// </summary>
     public sealed class Mod : CSCommonMod<OptionsPanel, ConcertPatcher>, IUserMod
     {
-        public const string Version = "0.5";
+        public const string Version = "0.5.1";
 
         public override string BaseName => "Concert Extension";
 
@@ -26,7 +26,10 @@ namespace ConcertMod
 
         static readonly CSCommonRelease[] Changelog =
         {
-            new(Version, "2026-11-22",
+            new(Version, "2026-11-24",
+                "[변경] 성능 평균 줄(60초마다)은 설정 '자세한 로그'를 켰을 때만 남겨요 · 한 번 50ms 넘는 멈춤 줄은 늘 남기고 GC 횟수 · 힙 크기를 같이 적어요(정본 CSCommonUX)",
+                "[변경] 공연 계획 풂 · 의향서(승인 대기 · 일부만 잡힘 · 철회 · 승인 · 확정) · 경기장 확정 공연 · 페스티벌 구역 단계 줄은 자세한 로그를 켰을 때만 남겨요"),
+            new("0.5", "2026-11-22",
                 "[신규] 페스티벌 구역을 여러 개 지어도 모두 공연장이 돼요: 다음 공연 · 예약 · 의향서 희망 공연장 · 3단계 자동 올리기가 페스티벌마다 따로 돌고, 마지막 회차도 공연장마다 기억해요",
                 "[신규] 빌린 경기장 공연에도 예매가 적용돼요 · 공연장이 둘 이상이면 예매 탭 아래 서브 툴바에서 공연장을 골라 좌석 · 예매처 · 방금 예매 · 오픈 전 · 대기줄을 그 공연장 기준으로 봐요",
                 "[변경] 예약 탭에서 공연장을 바꾸면 밴드 · 시각 · 기간이 그 공연장 계획 값으로 다시 채워져요",
@@ -103,6 +106,7 @@ namespace ConcertMod
         {
             base.OnEnabled();
             CSCommonTheme.Use(false, CSCommonPalette.Violet); // 다크 · 보라 팔레트(캔버스)
+            CSCommonUX.PerfWatch.On = () => ConcertSetting.Current.VerboseLog; // 성능 줄도 설정 '자세한 로그'를 따름
         }
     }
 }

@@ -268,7 +268,7 @@ namespace ConcertMod.Data
                     break;
                 case StepDo.PlaceNow:
                     Active.Add(new Rent { Stadium = s, Band = f.PlanBand, Start = f.Start, End = f.End, AnchorPrev = f.HeadId, AnchorExpire = f.HeadId != 0 ? em.m_events.m_buffer[f.HeadId].m_expireFrame : 0u });
-                    Core.Log.Info($"경기장 확정 공연(다음 경기 없음): {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(f.PlanBand)} · {sim.FrameToTime(f.Start):MM-dd HH:mm}");
+                    Core.Log.Detail($"경기장 확정 공연(다음 경기 없음): {bm.GetBuildingName(s, InstanceID.Empty)} · {Artists.Of(f.PlanBand)} · {sim.FrameToTime(f.Start):MM-dd HH:mm}");
                     break;
                 case StepDo.ReplaceMatch:
                 {

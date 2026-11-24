@@ -258,7 +258,7 @@ namespace ConcertMod.Data
                     {
                         var info = bm.m_buildings.m_buffer[b].Info;
                         if (info == null || info.m_class.m_level >= ItemClass.Level.Level3 || !bm.UpgradeBuilding(b, false)) break;
-                        Log.Info("페스티벌 구역 " + b + " → " + bm.m_buildings.m_buffer[b].Info?.m_class.m_level);
+                        Log.Detail("페스티벌 구역 " + b + " → " + bm.m_buildings.m_buffer[b].Info?.m_class.m_level);
                     }
                 }));
             }
