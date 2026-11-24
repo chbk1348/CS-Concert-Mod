@@ -29,6 +29,9 @@ namespace ConcertMod.Data
         /// <summary>지난 공연(본 스레드가 바꾸고 화면이 읽음 · 저장은 시뮬레이션 스레드). 바꾸거나 사본 뜰 때 lock (All) — released lock 과 겹쳐 잡지 않음.</summary>
         public static readonly List<Record> All = new();
 
+        /// <summary>All 을 바꿀 때마다 오름(본 스레드). 차트가 기록에서 셈한 값을 이게 바뀔 때만 다시 셈.</summary>
+        public static int Version;
+
         const int Format = 3;
         const int Keep = 500;
         public const string SaveKey = "ConcertMod.History";
@@ -119,6 +122,7 @@ namespace ConcertMod.Data
             {
                 All.Add(r);
                 if (All.Count > Keep) All.RemoveAt(0);
+                Version++;
             }
             return true;
         }
@@ -129,7 +133,7 @@ namespace ConcertMod.Data
         /// <summary>설정 '공연 기록 지우기': 세이브에 남긴 지난 공연을 모두(이미 끝난 공연을 다시 적지 않게 본 표시는 둠).</summary>
         public static void Forget()
         {
-            lock (All) All.Clear();
+            lock (All) { All.Clear(); Version++; }
         }
 
         /// <summary>옛 세이브: 밴드 프리팹 이름으로 남은 기록을 그때 붙던 아티스트 이름으로(LoadBands 에서 Artists.Assign 뒤).</summary>
@@ -143,12 +147,13 @@ namespace ConcertMod.Data
                     foreach (var kv in r.Pops) pops[Artists.Of(kv.Key)] = kv.Value;
                     r.Pops = pops;
                 }
+            Version++;
         }
 
         public static void Clear()
         {
             primed = false;
-            lock (All) All.Clear();
+            lock (All) { All.Clear(); Version++; }
             peak.Clear();
             seen.Clear();
             seenOld.Clear();
@@ -199,7 +204,7 @@ namespace ConcertMod.Data
         {
             Clear();
             var list = Parse(data);
-            lock (All) All.AddRange(list);
+            lock (All) { All.AddRange(list); Version++; }
             foreach (var rec in list) Mark(rec);
         }
 
@@ -302,7 +307,7 @@ namespace ConcertMod.Data
             finally
             {
                 Clear();
-                lock (All) All.AddRange(keep);
+                lock (All) { All.AddRange(keep); Version++; }
                 seen.UnionWith(keepSeen);
                 seenOld.UnionWith(keepSeenOld);
                 foreach (var kv in keepPeak) peak[kv.Key] = kv.Value;

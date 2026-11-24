@@ -44,8 +44,99 @@ namespace ConcertMod.UI
             return y2 + row2;
         }
 
-        /// <summary>지금 인기 순위 + 지난 기록 순위와 비교한 변동 · 기록 속 최고 순위 · 위 10 안에 든 공연 수.</summary>
+        // ---- 기록에서 셈한 값 캐시: 매 그리기 이벤트마다 기록 500개를 순위 매기지 않게, History.Version 이 바뀔 때만 다시 셈
+
+        static int histVer = -1, checks;
+        static Dictionary<string, int> histPrev;
+        static readonly Dictionary<string, int> histPeak = new(), histWeeks = new(), histOnes = new();
+        static string streakKey, longKey;
+        static int streakN, longRun;
+        static List<Rank> ranks;
+        static readonly List<Band> rankBands = new();
+        static readonly List<int> rankPops = new();
+
+        /// <summary>기록마다 순위 한 번: 직전 기록 순위 · 최고 순위 · 차트 기간 · 1위 횟수 · 끝의 연속 1위 · 최장 1위.</summary>
+        static void HistCache()
+        {
+            if (histVer == History.Version) return;
+            histVer = History.Version;
+            histPeak.Clear(); histWeeks.Clear(); histOnes.Clear();
+            histPrev = null;
+            longKey = null; longRun = 0;
+            string runKey = null;
+            int run = 0;
+            var hist = History.All;
+            for (int i = 0; i < hist.Count; i++)
+            {
+                var rk = RankOf(hist[i].Pops);
+                string first = null;
+                foreach (var kv in rk)
+                {
+                    histPeak[kv.Key] = Math.Min(histPeak.TryGetValue(kv.Key, out int p) ? p : int.MaxValue, kv.Value);
+                    if (kv.Value <= ChartTop) histWeeks[kv.Key] = (histWeeks.TryGetValue(kv.Key, out int n) ? n : 0) + 1;
+                    if (kv.Value == 1) first = kv.Key;
+                }
+                if (first != null) histOnes[first] = (histOnes.TryGetValue(first, out int o) ? o : 0) + 1;
+                run = first == runKey ? run + 1 : 1;
+                runKey = first;
+                if (run > longRun) { longRun = run; longKey = first; }
+                if (i == hist.Count - 1) histPrev = rk;
+            }
+            streakKey = runKey;
+            streakN = runKey != null ? run : 0;
+            ranks = null;
+        }
+
+        /// <summary>지금 인기 순위(캐시): 기록이 바뀌었거나 밴드 · 인기가 바뀌었을 때만 다시 만듦.</summary>
         static List<Rank> Ranks()
+        {
+            HistCache();
+            var bands = Shows.Bands;
+            bool same = ranks != null && rankBands.Count == bands.Count;
+            for (int i = 0; same && i < bands.Count; i++) same = rankBands[i] == bands[i] && rankPops[i] == bands[i].Pop;
+            if (same) return ranks;
+            rankBands.Clear(); rankPops.Clear();
+            foreach (var b in bands) { rankBands.Add(b); rankPops.Add(b.Pop); }
+            var list = new List<Rank>();
+            foreach (var b in bands) list.Add(new Rank { Band = b });
+            list.Sort((a, b) => b.Band.Pop != a.Band.Pop ? b.Band.Pop.CompareTo(a.Band.Pop) : string.CompareOrdinal(a.Band.Name, b.Band.Name));
+            for (int i = 0; i < list.Count; i++) list[i].Pos = i + 1;
+            int histN = History.All.Count;
+            foreach (var r in list)
+            {
+                if (histPrev != null && histPrev.TryGetValue(r.Band.Key, out int before)) r.Move = before - r.Pos;
+                else r.New = histN > 0;
+                r.Peak = Math.Min(r.Pos, histPeak.TryGetValue(r.Band.Key, out int pk) ? pk : int.MaxValue);
+                r.Weeks = histWeeks.TryGetValue(r.Band.Key, out int wk) ? wk : 0;
+            }
+            ranks = list;
+            // 자가 검사: 기록이 있을 때 처음 3번은 예전 방식(매번 다시 셈)과 같은지 봄
+            if (histN > 0 && checks < 3)
+            {
+                checks++;
+                string bad = CheckRanks(list);
+                if (bad != null) Core.Log.Warn("차트 캐시 자가 검사 실패: " + bad);
+            }
+            return list;
+        }
+
+        /// <summary>캐시 값이 예전 방식(FreshRanks · FreshStreak)과 같은지. 같으면 null.</summary>
+        static string CheckRanks(List<Rank> got)
+        {
+            var want = FreshRanks();
+            if (want.Count != got.Count) return "순위 수 " + got.Count + " ≠ " + want.Count;
+            for (int i = 0; i < want.Count; i++)
+            {
+                Rank a = got[i], b = want[i];
+                if (a.Band != b.Band || a.Pos != b.Pos || a.Move != b.Move || a.Peak != b.Peak || a.Weeks != b.Weeks || a.New != b.New)
+                    return b.Band.Name + " 순위 값이 달라요";
+                if (Streak(b.Band.Key) != FreshStreak(b.Band.Key)) return b.Band.Name + " 연속 1위가 달라요";
+            }
+            return null;
+        }
+
+        /// <summary>지금 인기 순위 + 지난 기록 순위와 비교한 변동 · 기록 속 최고 순위 · 위 10 안에 든 공연 수(캐시 자가 검사의 기준).</summary>
+        static List<Rank> FreshRanks()
         {
             var list = new List<Rank>();
             foreach (var b in Shows.Bands) list.Add(new Rank { Band = b });
@@ -80,8 +171,15 @@ namespace ConcertMod.UI
             return d;
         }
 
-        /// <summary>그 밴드가 1위를 이어 온 기록 수(끝에서부터).</summary>
+        /// <summary>그 밴드가 1위를 이어 온 기록 수(끝에서부터, 캐시).</summary>
         static int Streak(string key)
+        {
+            HistCache();
+            return key != null && key == streakKey ? streakN : 0;
+        }
+
+        /// <summary>Streak 을 매번 다시 셈(캐시 자가 검사의 기준).</summary>
+        static int FreshStreak(string key)
         {
             int n = 0;
             for (int i = History.All.Count - 1; i >= 0; i--)
@@ -124,7 +222,8 @@ namespace ConcertMod.UI
                 sumT += x.Ticket;
                 maxV = Math.Max(maxV, x.Visitors);
             }
-            foreach (var x in History.All) if (RankOf(x.Pops).TryGetValue(b.Key, out int p) && p == 1) ones++;
+            HistCache();
+            if (b.Key != null && histOnes.TryGetValue(b.Key, out int o1)) ones = o1;
             float y = art.yMax + S.Pad, cw = (r.width - S.Pad * 2f - D.Gap * 4f) / 3f, x0 = r.x + S.Pad;
             string[] names = { "공연", "성공률", "평균 관객", "최다 관객", "매표 수입", "최고 순위" };
             string[] vals =
@@ -237,17 +336,7 @@ namespace ConcertMod.UI
                 if (rich == null || x.Ticket > rich.Ticket) rich = x;
                 if (jump == null || x.PopDelta > jump.PopDelta) jump = x;
             }
-            string longKey = null;
-            int longRun = 0, run = 0;
-            string runKey = null;
-            foreach (var x in all)
-            {
-                string first = null;
-                foreach (var kv in RankOf(x.Pops)) if (kv.Value == 1) first = kv.Key;
-                run = first == runKey ? run + 1 : 1;
-                runKey = first;
-                if (run > longRun) { longRun = run; longKey = first; }
-            }
+            HistCache(); // 최장 1위(longKey · longRun)
             float gap = S.Gap, pw = (body.width - gap) * 0.5f;
             Pass(new Rect(body.x, body.y, pw, C.PassH), "최다 관객", most != null ? most.Visitors.ToString("#,0") + "명" : "–", most);
             Pass(new Rect(body.x + pw + gap, body.y, pw, C.PassH), "최고 매표 수입", rich != null ? Money(rich.Ticket) : "–", rich);
